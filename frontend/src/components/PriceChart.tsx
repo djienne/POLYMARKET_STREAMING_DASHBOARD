@@ -20,6 +20,7 @@ const DOWN_MODEL_COLOR = "#fda4af"; // rose-300 lighter
 const MARKER_WIN = "#10b981";
 const MARKER_LOSS = "#f43f5e";
 const MARKER_ENTRY = "#22d3ee";
+const TP_LINE = "#facc15";
 
 function toTs(iso: string | null | undefined): number | null {
   if (!iso) return null;
@@ -33,6 +34,7 @@ export default function PriceChart() {
   const modelUp = useDash((s) => s.modelUp);
   const modelDown = useDash((s) => s.modelDown);
   const markers = useDash((s) => s.markers);
+  const position = useDash((s) => s.position.open);
   const polymarket = useDash((s) => s.terminal?.polymarket);
   const slug = useDash((s) => s.terminal?.market?.slug);
   const windowStart = useDash((s) => s.windowStartIso);
@@ -76,6 +78,14 @@ export default function PriceChart() {
       return ts != null && ts >= startTs! && ts <= endTs!;
     });
   }, [markers, haveWindow, startTs, endTs]);
+
+  const tpTarget =
+    position?.tp_target != null &&
+    position.tp_target >= 0 &&
+    position.tp_target <= 1 &&
+    (!slug || !position.market_id || position.market_id === slug)
+      ? position.tp_target
+      : null;
 
   return (
     <div className="card p-4 h-full flex flex-col">
@@ -160,6 +170,23 @@ export default function PriceChart() {
               ]}
             />
             <ReferenceLine y={0.5} stroke="#334155" strokeDasharray="2 4" />
+            {tpTarget != null && (
+              <ReferenceLine
+                y={tpTarget}
+                stroke={TP_LINE}
+                strokeWidth={1.5}
+                strokeDasharray="6 4"
+                strokeOpacity={0.9}
+                ifOverflow="extendDomain"
+                label={{
+                  value: `TP ${tpTarget.toFixed(4)}`,
+                  position: "right",
+                  fill: TP_LINE,
+                  fontSize: 10,
+                  fontFamily: "monospace",
+                }}
+              />
+            )}
             {/* Tradeable-zone markers (5m..13m) */}
             {haveWindow && (
               <>
@@ -298,6 +325,7 @@ export default function PriceChart() {
         <MarkerHint color={MARKER_ENTRY} label="ENTRY" hollow />
         <MarkerHint color={MARKER_WIN} label="WIN / TP" />
         <MarkerHint color={MARKER_LOSS} label="LOSS / SL" />
+        <MarkerHint color={TP_LINE} label="ACTIVE TP" line />
         <span className="ml-auto text-slate-600">
           orange ticks = tradeable zone (5–13m)
         </span>
@@ -342,20 +370,36 @@ function MarkerHint({
   color,
   label,
   hollow,
+  line,
 }: {
   color: string;
   label: string;
   hollow?: boolean;
+  line?: boolean;
 }) {
   return (
     <span className="flex items-center gap-1.5">
-      <span
-        className="inline-block w-2 h-2 rounded-full"
-        style={{
-          background: hollow ? "transparent" : color,
-          border: `2px solid ${color}`,
-        }}
-      />
+      {line ? (
+        <svg width="14" height="6" aria-hidden="true">
+          <line
+            x1="0"
+            y1="3"
+            x2="14"
+            y2="3"
+            stroke={color}
+            strokeWidth="2"
+            strokeDasharray="4 3"
+          />
+        </svg>
+      ) : (
+        <span
+          className="inline-block w-2 h-2 rounded-full"
+          style={{
+            background: hollow ? "transparent" : color,
+            border: `2px solid ${color}`,
+          }}
+        />
+      )}
       <span>{label}</span>
     </span>
   );

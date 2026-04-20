@@ -13,7 +13,7 @@ from ..collector.leaderboard_reader import LeaderboardReader
 from ..collector.liveness import current_liveness
 from ..collector.orderbook_tail import OrderbookTail
 from ..collector.polymarket_client import PolymarketClient
-from ..collector.state_reader import StateReader
+from ..collector.state_reader import STARTING_CAPITAL, StateReader
 from ..collector.terminal_reader import TerminalReader
 from ..collector.trades_tail import TradesTail
 from ..config import settings
@@ -110,6 +110,46 @@ class Hub:
         self._shared_cfg_mtime = mtime
         return cfg
 
+    def starting_capital(self) -> float:
+        configured = self.shared_config().starting_capital
+        if configured is None:
+            return STARTING_CAPITAL
+        try:
+            return float(configured)
+        except (TypeError, ValueError):
+            return STARTING_CAPITAL
+
+    @staticmethod
+    def _apply_leaderboard_context(
+        instance: Optional[InstanceStats],
+        lb_row,
+    ) -> Optional[InstanceStats]:
+        if instance is None or lb_row is None:
+            return instance
+        instance.rank = lb_row.rank
+        instance.params = lb_row.params
+        instance.sharpe = lb_row.sharpe
+        instance.max_drawdown = lb_row.max_drawdown
+        instance.max_drawdown_pct = lb_row.max_drawdown_pct
+        instance.wins = lb_row.wins
+        instance.losses = lb_row.losses
+        instance.win_rate = lb_row.win_rate
+        instance.trades_count = lb_row.trades
+        return instance
+
+    def instance_snapshot(self, instance_id: int):
+        starting_capital = self.starting_capital()
+        lb_row = self.leaderboard.row(instance_id)
+        instance = self.state.instance(instance_id, starting_capital=starting_capital)
+        instance = self._apply_leaderboard_context(instance, lb_row)
+        position = self.state.position(instance_id)
+        pnls = self.state.trade_pnls(instance_id)
+        equity = equity_curve(pnls, starting_capital=starting_capital)
+        equity_series = equity_timeseries(
+            self.trades.chronological(instance_id), starting_capital=starting_capital
+        )
+        return instance, position, equity, equity_series
+
     def build_bootstrap(self, instance_id: int) -> BootstrapPayload:
         # Force refresh
         self.state.read_if_changed()
@@ -118,18 +158,8 @@ class Hub:
         self.orderbook.poll()
         slug = self._current_slug()
 
-        instance = self.state.instance(instance_id)
+        instance, position, equity, equity_series = self.instance_snapshot(instance_id)
         lb_row = self.leaderboard.row(instance_id)
-        if instance and lb_row:
-            instance.rank = lb_row.rank
-            instance.params = lb_row.params
-
-        position = self.state.position(instance_id)
-        pnls = self.state.trade_pnls(instance_id)
-        equity = equity_curve(pnls, starting_capital=1000.0)
-        equity_series = equity_timeseries(
-            self.trades.chronological(instance_id), starting_capital=1000.0
-        )
 
         terminal = self.terminal.latest or TerminalSnapshot()
         # Polymarket prices: direct CLOB API (primary) → orderbook CSV fallback for paper mode.

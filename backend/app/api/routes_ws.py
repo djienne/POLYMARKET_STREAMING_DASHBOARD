@@ -42,6 +42,15 @@ async def ws_endpoint(ws: WebSocket) -> None:
     ctx = ConnContext(ws)
     hub = get_hub()
 
+    async def send_instance_snapshot() -> None:
+        instance, position, equity, equity_series = hub.instance_snapshot(ctx.instance_id)
+        await ctx.send("instance.update", {
+            "instance": instance.model_dump() if instance else None,
+            "position": position.model_dump(),
+            "equity": equity,
+            "equity_series": equity_series,
+        })
+
     # Send initial bootstrap
     try:
         payload = hub.build_bootstrap(ctx.instance_id).model_dump()
@@ -58,20 +67,11 @@ async def ws_endpoint(ws: WebSocket) -> None:
                 return
         if topic == "state.update":
             # Re-send scoped instance snapshot
-            instance = hub.state.instance(ctx.instance_id)
-            lb_row = hub.leaderboard.row(ctx.instance_id)
-            if instance and lb_row:
-                instance.rank = lb_row.rank
-                instance.params = lb_row.params
-            position = hub.state.position(ctx.instance_id)
-            from ..derive.equity import equity_curve
-            pnls = hub.state.trade_pnls(ctx.instance_id)
-            equity = equity_curve(pnls, 1000.0)
-            await ctx.send("instance.update", {
-                "instance": instance.model_dump() if instance else None,
-                "position": position.model_dump(),
-                "equity": equity,
-            })
+            await send_instance_snapshot()
+            return
+        if topic == "leaderboard.update":
+            await ctx.send(topic, data)
+            await send_instance_snapshot()
             return
         await ctx.send(topic, data)
 

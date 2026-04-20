@@ -1,6 +1,8 @@
 import json
 from pathlib import Path
 
+import pytest
+
 from app.collector.state_reader import StateReader, instance_from_raw, position_from_raw
 
 
@@ -21,6 +23,28 @@ def test_instance_stats_derivation():
     assert s.win_rate == 80.0
     assert s.sharpe > 0
     assert s.max_drawdown >= 0
+
+
+def test_max_drawdown_pct_uses_running_peak():
+    raw = {
+        "capital": 1100.0,
+        "trade_pnls": [1500.0, -1400.0],
+    }
+    s = instance_from_raw(773, raw, starting_capital=1000.0)
+    assert s.max_drawdown == pytest.approx(1400.0)
+    assert s.max_drawdown_pct == pytest.approx(56.0, abs=0.01)
+    assert s.max_drawdown_pct <= 100.0
+
+
+def test_instance_stats_respect_explicit_starting_capital():
+    raw = {
+        "capital": 120.0,
+        "trade_pnls": [20.0],
+    }
+    s = instance_from_raw(773, raw, starting_capital=100.0)
+    assert s.starting_capital == 100.0
+    assert s.total_pnl == 20.0
+    assert s.total_pnl_pct == 20.0
 
 
 def test_position_from_raw_flat():
@@ -56,3 +80,15 @@ def test_state_reader_diff_by_mtime(tmp_path: Path):
     stats = r.instance(773)
     assert stats is not None
     assert stats.capital == 1100.0
+
+
+def test_state_reader_instance_uses_supplied_starting_capital(tmp_path: Path):
+    p = tmp_path / "state.json"
+    p.write_text(json.dumps({"instances": {"773": {"capital": 110.0, "trade_pnls": [10.0]}}}))
+    r = StateReader(path_fn=lambda: p)
+    assert r.read_if_changed() is True
+    stats = r.instance(773, starting_capital=100.0)
+    assert stats is not None
+    assert stats.starting_capital == 100.0
+    assert stats.total_pnl == 10.0
+    assert stats.total_pnl_pct == 10.0

@@ -31,17 +31,24 @@ def _compute_max_dd(pnls: list[float], starting: float) -> tuple[float, float]:
     peak = starting
     equity = starting
     max_dd = 0.0
+    max_dd_pct = 0.0
     for p in pnls:
         equity += p
         peak = max(peak, equity)
         dd = peak - equity
         if dd > max_dd:
             max_dd = dd
-    max_dd_pct = (max_dd / starting) * 100.0 if starting else 0.0
+            max_dd_pct = (dd / peak) * 100.0 if peak > 0 else 0.0
     return max_dd, max_dd_pct
 
 
 def instance_from_raw(instance_id: int, raw: dict, starting_capital: float = STARTING_CAPITAL) -> InstanceStats:
+    raw_starting_capital = raw.get("starting_capital")
+    if raw_starting_capital is not None:
+        try:
+            starting_capital = float(raw_starting_capital)
+        except (TypeError, ValueError):
+            pass
     pnls = [float(x) for x in raw.get("trade_pnls", []) if isinstance(x, (int, float))]
     capital = float(raw.get("capital", starting_capital))
     total_pnl = float(raw.get("total_pnl", capital - starting_capital))
@@ -116,11 +123,11 @@ class StateReader:
         self._last_mtime = st.st_mtime
         return True
 
-    def instance(self, instance_id: int) -> Optional[InstanceStats]:
+    def instance(self, instance_id: int, starting_capital: float = STARTING_CAPITAL) -> Optional[InstanceStats]:
         raw = (self._raw.get("instances") or {}).get(str(instance_id))
         if raw is None:
             return None
-        return instance_from_raw(instance_id, raw)
+        return instance_from_raw(instance_id, raw, starting_capital=starting_capital)
 
     def position(self, instance_id: int) -> PositionState:
         raw = (self._raw.get("instances") or {}).get(str(instance_id))

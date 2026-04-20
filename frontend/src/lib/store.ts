@@ -69,6 +69,13 @@ const initialCalibration: CalibrationStatus = {
   last_timing: null,
 };
 
+const CLOSE_EVENTS = new Set([
+  "TP_FILLED",
+  "WIN_EXPIRY",
+  "LOSS_EXPIRY",
+  "STOP_LOSS",
+]);
+
 export const useDash = create<DashState>((set, get) => ({
   mode: "dry_run",
   selectedInstanceId: 100,
@@ -188,6 +195,7 @@ export const useDash = create<DashState>((set, get) => ({
           instance: d.instance,
           position: d.position,
           equity: d.equity,
+          equitySeries: d.equity_series ?? get().equitySeries,
         });
         break;
       case "window.tick": {
@@ -330,8 +338,9 @@ function handleTrade(
   set: (partial: Partial<DashState>) => void,
 ) {
   if (ev.instance_id !== get().selectedInstanceId) return;
-  const trades = [ev, ...get().trades].slice(0, 200);
-  const flashQueue = [...get().flashQueue];
+  const st = get();
+  const trades = [ev, ...st.trades].slice(0, 200);
+  const flashQueue = [...st.flashQueue];
   const eKind = classifyEvent(ev.event);
   if (eKind) {
     flashQueue.push({
@@ -351,9 +360,9 @@ function handleTrade(
         : ev.event === "STOP_LOSS" || ev.event === "LOSS_EXPIRY"
           ? "LOSS"
           : null;
-  let markers = get().markers;
+  let markers = st.markers;
   if (markerKind) {
-    const slug = get().terminal?.market?.slug;
+    const slug = st.terminal?.market?.slug;
     if (!slug || !ev.market_id || ev.market_id === slug) {
       markers = [
         ...markers,
@@ -367,7 +376,9 @@ function handleTrade(
       ].slice(-60);
     }
   }
-  set({ trades, flashQueue, markers });
+
+  const liveEquity = nextLiveEquity(st, ev);
+  set({ trades, flashQueue, markers, ...liveEquity });
 }
 
 function classifyEvent(
@@ -377,4 +388,30 @@ function classifyEvent(
   if (eventName === "TP_FILLED" || eventName === "WIN_EXPIRY") return "win";
   if (eventName === "STOP_LOSS" || eventName === "LOSS_EXPIRY") return "loss";
   return null;
+}
+
+function nextLiveEquity(
+  st: DashState,
+  ev: TradeEvent,
+): Partial<DashState> {
+  if (!CLOSE_EVENTS.has(ev.event)) return {};
+
+  const start =
+    st.instance?.starting_capital ?? st.sharedConfig.starting_capital ?? 1000;
+  const lastEquity =
+    st.equity.length > 0 ? st.equity[st.equity.length - 1] : start;
+  const nextEquity =
+    ev.capital ?? (ev.pnl != null ? lastEquity + ev.pnl : null);
+  if (nextEquity == null) return {};
+
+  const equity = [...st.equity, nextEquity];
+  const equitySeries =
+    st.equitySeries.length === 0
+      ? [
+          { t: ev.timestamp, v: start },
+          { t: ev.timestamp, v: nextEquity },
+        ]
+      : [...st.equitySeries, { t: ev.timestamp, v: nextEquity }];
+
+  return { equity, equitySeries };
 }

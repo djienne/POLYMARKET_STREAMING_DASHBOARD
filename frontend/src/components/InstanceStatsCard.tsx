@@ -29,8 +29,8 @@ export default function InstanceStatsCard() {
     },
     {
       label: "Max DD",
-      value: `$${inst.max_drawdown.toFixed(2)}`,
-      sub: `${inst.max_drawdown_pct.toFixed(2)}%`,
+      value: `${inst.max_drawdown_pct.toFixed(2)}%`,
+      sub: `$${inst.max_drawdown.toFixed(2)}`,
       color: "text-amber-300",
     },
     {
