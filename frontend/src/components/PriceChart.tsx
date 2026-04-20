@@ -3,6 +3,7 @@ import {
   CartesianGrid,
   Line,
   LineChart,
+  ReferenceArea,
   ReferenceDot,
   ReferenceLine,
   ResponsiveContainer,
@@ -63,8 +64,10 @@ export default function PriceChart() {
     for (const p of modelDown) push(p.t, "model_down", p.v);
 
     if (haveWindow) {
-      const firstPolyUp = firstWindowValue(up, startTs!, endTs!);
-      const firstPolyDown = firstWindowValue(down, startTs!, endTs!);
+      // Restore the poly-line carry-back: seed t=0 with the first observed poll
+      // (or live polymarket snapshot) so the solid poly line has an anchor.
+      const firstPolyUp = firstWindowPoint(up, startTs!, endTs!)?.v ?? null;
+      const firstPolyDown = firstWindowPoint(down, startTs!, endTs!)?.v ?? null;
       const startRow = map.get(startTs!) ?? { ts: startTs! };
 
       if (startRow.poly_up == null) {
@@ -73,12 +76,42 @@ export default function PriceChart() {
       if (startRow.poly_down == null) {
         startRow.poly_down = firstPolyDown ?? polymarket?.prob_down ?? undefined;
       }
-      if (startRow.poly_up != null || startRow.poly_down != null) {
+
+      // Seed the MODEL series at t=0 with a 50/50 prior so the chart doesn't
+      // show a 7 s gap while calibration computes the first real model
+      // probability. Model lines are already dashed, so the seeded segment
+      // naturally reads as "estimated until the model catches up".
+      const firstModelUp = firstWindowPoint(modelUp, startTs!, endTs!);
+      const firstModelDown = firstWindowPoint(modelDown, startTs!, endTs!);
+      if (startRow.model_up == null) startRow.model_up = 0.5;
+      if (startRow.model_down == null) startRow.model_down = 0.5;
+      if (
+        startRow.poly_up != null ||
+        startRow.poly_down != null ||
+        startRow.model_up != null ||
+        startRow.model_down != null
+      ) {
         map.set(startTs!, startRow);
       }
 
-      // If we only have a current Polymarket quote but no actual series points yet,
-      // synthesize a second point "now" so the chart renders a flat carried-back line.
+      // If no real model point has arrived yet, extend the 0.5 seed to "now"
+      // so the dashed model line is actually visible (otherwise it's a single
+      // point and Recharts won't draw anything).
+      if (firstModelUp == null) {
+        const ts = Math.min(Math.max(Date.now(), startTs!), endTs!);
+        const row = map.get(ts) ?? { ts };
+        if (row.model_up == null) row.model_up = 0.5;
+        map.set(ts, row);
+      }
+      if (firstModelDown == null) {
+        const ts = Math.min(Math.max(Date.now(), startTs!), endTs!);
+        const row = map.get(ts) ?? { ts };
+        if (row.model_down == null) row.model_down = 0.5;
+        map.set(ts, row);
+      }
+
+      // If we only have a current Polymarket quote but no actual series points
+      // yet, synthesize a second poly point "now" so the solid line renders.
       if (
         firstPolyUp == null &&
         firstPolyDown == null &&
@@ -228,20 +261,51 @@ export default function PriceChart() {
                 }}
               />
             )}
-            {/* Tradeable-zone markers (5m..13m) */}
+            {/* No-trade zone shading (under the lines, behind boundary ticks) */}
             {haveWindow && (
               <>
+                <ReferenceArea
+                  x1={startTs!}
+                  x2={startTs! + 300_000}
+                  fill="#f59e0b"
+                  fillOpacity={0.07}
+                  stroke="none"
+                  label={{
+                    value: "settling · no entries",
+                    position: "insideTop",
+                    offset: 6,
+                    fill: "#fcd34d",
+                    fontSize: 10,
+                    fontFamily: "monospace",
+                  }}
+                />
+                <ReferenceArea
+                  x1={startTs! + 780_000}
+                  x2={endTs!}
+                  fill="#f43f5e"
+                  fillOpacity={0.07}
+                  stroke="none"
+                  label={{
+                    value: "closing · exits only",
+                    position: "insideTop",
+                    offset: 6,
+                    fill: "#fda4af",
+                    fontSize: 10,
+                    fontFamily: "monospace",
+                  }}
+                />
+                {/* Crisp boundaries on top of the shading */}
                 <ReferenceLine
                   x={startTs! + 300_000}
                   stroke="#f59e0b"
                   strokeDasharray="2 3"
-                  strokeOpacity={0.4}
+                  strokeOpacity={0.5}
                 />
                 <ReferenceLine
                   x={startTs! + 780_000}
-                  stroke="#f59e0b"
+                  stroke="#f43f5e"
                   strokeDasharray="2 3"
-                  strokeOpacity={0.4}
+                  strokeOpacity={0.5}
                 />
                 {/* Current-time cursor */}
                 {nowTs >= startTs! && nowTs <= endTs! && (
@@ -367,8 +431,21 @@ export default function PriceChart() {
         <MarkerHint color={MARKER_WIN} label="WIN / TP" />
         <MarkerHint color={MARKER_LOSS} label="LOSS / SL" />
         <MarkerHint color={TP_LINE} label="ACTIVE TP" line />
-        <span className="ml-auto text-slate-600">
-          orange ticks = tradeable zone (5–13m)
+        <span className="ml-auto flex items-center gap-3 text-slate-500">
+          <span className="inline-flex items-center gap-1.5">
+            <span
+              className="inline-block h-2 w-3 rounded-sm"
+              style={{ backgroundColor: "#f59e0b", opacity: 0.45 }}
+            />
+            <span>0–5m no entries</span>
+          </span>
+          <span className="inline-flex items-center gap-1.5">
+            <span
+              className="inline-block h-2 w-3 rounded-sm"
+              style={{ backgroundColor: "#f43f5e", opacity: 0.45 }}
+            />
+            <span>13–15m exits only</span>
+          </span>
         </span>
       </div>
     </div>
@@ -450,16 +527,16 @@ function formatTick(ts: number): string {
   return fmtLocalHM(ts);
 }
 
-function firstWindowValue(
+function firstWindowPoint(
   series: { t: string; v: number }[],
   startTs: number,
   endTs: number,
-): number | null {
+): { ts: number; v: number } | null {
   for (const p of series) {
     const ts = toTs(p.t);
     if (ts == null) continue;
     if (ts < startTs || ts > endTs) continue;
-    return p.v;
+    return { ts, v: p.v };
   }
   return null;
 }

@@ -20,6 +20,12 @@ export default function Footer() {
               : "—"}
           </span>
         </span>
+        <span
+          className="text-slate-500 uppercase tracking-[0.18em]"
+          title="All timestamps shown in Europe/Paris (same as Amsterdam — CET in winter, CEST in summer)"
+        >
+          tz <span className="text-slate-300">Europe/Paris · CET/CEST</span>
+        </span>
         <span className="text-slate-500 ml-auto">
           {t?.surface_fit_s != null && (
             <>
@@ -36,6 +42,7 @@ export default function Footer() {
             </>
           )}
         </span>
+        <DevEntryTrigger />
         <DevWinTrigger />
       </div>
     </footer>
@@ -43,10 +50,10 @@ export default function Footer() {
 }
 
 /**
- * Hidden dev button — a 6×6 dot tucked at the very end of the footer.
- * Click to fire a synthetic "win" flash so the dicaprio.gif overlay can be
- * verified without waiting for a real TP. Not visually obvious: 10% opacity
- * at rest, 70% on hover.
+ * Hidden dev buttons — tiny dots tucked at the very end of the footer.
+ * Click to fire a synthetic flash so the gif overlay can be verified without
+ * waiting for a real fill. Not visually obvious: 10% opacity at rest, 70% on
+ * hover.
  */
 function DevWinTrigger() {
   return (
@@ -63,6 +70,32 @@ function DevWinTrigger() {
               kind: "win",
               direction: "UP",
               amount: 4.2,
+              at: Date.now(),
+            },
+          ],
+        }));
+      }}
+      className="w-1.5 h-1.5 rounded-full bg-slate-500 opacity-10 hover:opacity-70 transition-opacity"
+    />
+  );
+}
+
+function DevEntryTrigger() {
+  return (
+    <button
+      type="button"
+      title="trigger entry"
+      aria-label="trigger entry"
+      onClick={() => {
+        const direction = Math.random() < 0.5 ? "UP" : "DOWN";
+        useDash.setState((st) => ({
+          flashQueue: [
+            ...st.flashQueue,
+            {
+              id: `dev-entry-${Date.now()}`,
+              kind: "entry",
+              direction,
+              amount: null,
               at: Date.now(),
             },
           ],

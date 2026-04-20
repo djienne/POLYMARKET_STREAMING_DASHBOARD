@@ -10,9 +10,10 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import random
 from collections import deque
 from datetime import datetime, timezone
-from typing import Callable, Deque, Optional
+from typing import Any, Callable, Deque, Optional
 
 import httpx
 
@@ -23,6 +24,15 @@ from ..models import PolymarketPrices
 log = logging.getLogger(__name__)
 
 MAX_POINTS = 1000
+
+# Circuit breaker: skip an endpoint for one poll cycle after this many consecutive failures.
+BREAKER_THRESHOLD = 5
+RETRY_ATTEMPTS = 3
+RETRY_BASE_DELAY = 0.25  # seconds
+
+
+class _EndpointUnavailable(Exception):
+    """Raised when the circuit breaker is open for the called endpoint."""
 
 
 def _best_bid_ask(book: dict) -> tuple[Optional[float], Optional[float]]:
@@ -51,6 +61,8 @@ class PolymarketClient:
         self._up_ask: Optional[float] = None
         self._down_bid: Optional[float] = None
         self._down_ask: Optional[float] = None
+        self._endpoint_failures: dict[str, int] = {}
+        self._endpoint_degraded: set[str] = set()
 
     async def _ensure_client(self) -> httpx.AsyncClient:
         if self._client is None:
@@ -59,6 +71,65 @@ class PolymarketClient:
                 headers={"User-Agent": "polymarket-streaming-dashboard/0.1"},
             )
         return self._client
+
+    def _on_endpoint_success(self, endpoint: str) -> None:
+        if endpoint in self._endpoint_degraded:
+            log.warning("polymarket endpoint %s recovered", endpoint)
+            self._endpoint_degraded.discard(endpoint)
+        self._endpoint_failures[endpoint] = 0
+
+    def _on_endpoint_failure(self, endpoint: str) -> None:
+        n = self._endpoint_failures.get(endpoint, 0) + 1
+        self._endpoint_failures[endpoint] = n
+        if n >= BREAKER_THRESHOLD and endpoint not in self._endpoint_degraded:
+            self._endpoint_degraded.add(endpoint)
+            log.warning(
+                "polymarket endpoint %s degraded after %d consecutive failures; "
+                "skipping for next poll cycle",
+                endpoint,
+                n,
+            )
+
+    async def _request_with_retry(
+        self,
+        endpoint: str,
+        url: str,
+        *,
+        params: Optional[dict[str, Any]] = None,
+        attempts: int = RETRY_ATTEMPTS,
+        base_delay: float = RETRY_BASE_DELAY,
+    ) -> httpx.Response:
+        """GET with bounded exponential backoff. Retries timeouts, network errors,
+        and 429/5xx responses. Raises the last exception (or _EndpointUnavailable
+        if the breaker is open) on final failure."""
+        if endpoint in self._endpoint_degraded:
+            raise _EndpointUnavailable(endpoint)
+
+        client = await self._ensure_client()
+        last_exc: Optional[Exception] = None
+        for i in range(attempts):
+            try:
+                r = await client.get(url, params=params)
+                if r.status_code == 429 or 500 <= r.status_code < 600:
+                    last_exc = httpx.HTTPStatusError(
+                        f"{r.status_code} from {endpoint}", request=r.request, response=r
+                    )
+                else:
+                    r.raise_for_status()
+                    self._on_endpoint_success(endpoint)
+                    return r
+            except (httpx.TimeoutException, httpx.TransportError) as e:
+                last_exc = e
+            except httpx.HTTPStatusError as e:
+                # 4xx other than 429 — don't retry
+                self._on_endpoint_failure(endpoint)
+                raise e
+            if i < attempts - 1:
+                delay = base_delay * (2 ** i) + random.uniform(0, base_delay)
+                await asyncio.sleep(delay)
+        self._on_endpoint_failure(endpoint)
+        assert last_exc is not None
+        raise last_exc
 
     async def close(self) -> None:
         if self._client is not None:
@@ -121,12 +192,12 @@ class PolymarketClient:
 
     async def _resolve_tokens(self, slug: str) -> bool:
         """Gamma API → extract UP/DOWN token_ids for this slug. Returns True if resolved."""
-        client = await self._ensure_client()
         url = f"{settings.polymarket_gamma_url}/markets"
         try:
-            r = await client.get(url, params={"slug": slug})
-            r.raise_for_status()
+            r = await self._request_with_retry("gamma", url, params={"slug": slug})
             data = r.json()
+        except _EndpointUnavailable:
+            return False
         except (httpx.HTTPError, ValueError) as e:
             self._token_lookup_failures += 1
             if self._token_lookup_failures <= 2:
@@ -183,12 +254,12 @@ class PolymarketClient:
         return up_token is not None and down_token is not None
 
     async def _fetch_book(self, token: str) -> Optional[dict]:
-        client = await self._ensure_client()
         url = f"{settings.polymarket_clob_url}/book"
         try:
-            r = await client.get(url, params={"token_id": token})
-            r.raise_for_status()
+            r = await self._request_with_retry("clob_book", url, params={"token_id": token})
             return r.json()
+        except _EndpointUnavailable:
+            return None
         except (httpx.HTTPError, ValueError) as e:
             log.debug("clob book fetch failed: %s", e)
             return None
@@ -199,10 +270,10 @@ class PolymarketClient:
         start_ts: int,
         end_ts: int,
     ) -> Optional[list[tuple[str, float]]]:
-        client = await self._ensure_client()
         url = f"{settings.polymarket_clob_url}/prices-history"
         try:
-            r = await client.get(
+            r = await self._request_with_retry(
+                "clob_history",
                 url,
                 params={
                     "market": token,
@@ -211,8 +282,9 @@ class PolymarketClient:
                     "fidelity": 1,
                 },
             )
-            r.raise_for_status()
             data = r.json()
+        except _EndpointUnavailable:
+            return None
         except (httpx.HTTPError, ValueError) as e:
             log.warning("polymarket prices-history fetch failed for %s: %s", token[:8], e)
             return None
@@ -269,6 +341,11 @@ class PolymarketClient:
         return bool(up_history or down_history)
 
     async def poll(self) -> bool:
+        # Allow each poll cycle to retry endpoints that tripped the breaker
+        # last cycle. Failure counters persist so the warning only fires on
+        # transition; recovery is logged from _on_endpoint_success.
+        self._endpoint_degraded.clear()
+
         slug = self._slug_fn()
         if not slug:
             return False

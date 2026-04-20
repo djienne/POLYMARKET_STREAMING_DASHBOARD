@@ -3,25 +3,50 @@ import { useEffect, useState } from "react";
 import { useDash } from "../../lib/store";
 import { fmtMoney } from "../../lib/format";
 
-// dicaprio.gif is 84 frames × 50 ms = exactly 4200 ms per loop (header loop=0).
-// We remount the <img> once at the natural loop boundary so the browser replays it
-// without leaving the overlay visibly frozen on the last frame.
-const GIF_LOOP_MS = 4200;
 const GIF_LOOPS = 2;
+const GIF_TAIL_MS = 300; // breathing room so the last loop doesn't get cut
+
+// dicaprio.gif: 84 frames × 50 ms = 4200 ms / loop
+const WIN_GIF = { src: "/dicaprio.gif", loopMs: 4200 };
+
+// Trade-open pool — random pick per ENTRY event (deterministic by flash id so
+// the render and the dismiss-timer agree without shared state).
+const ENTRY_GIFS = [
+  { src: "/andy-happening.gif", loopMs: 3760 }, // Andy "stay calm": 94 frames × 40 ms
+  { src: "/caprio-finger.gif",  loopMs: 1870 }, // DiCaprio pointing: 28 frames × ~67 ms
+] as const;
+
+function pickEntryGif(id: string): (typeof ENTRY_GIFS)[number] {
+  let h = 0;
+  for (let i = 0; i < id.length; i++) h = ((h << 5) - h + id.charCodeAt(i)) | 0;
+  return ENTRY_GIFS[Math.abs(h) % ENTRY_GIFS.length];
+}
+
+function dismissMsFor(loopMs: number): number {
+  return loopMs * GIF_LOOPS + GIF_TAIL_MS;
+}
 
 // Floating toast-style burst for each new fill event
 export default function AnimationCoordinator() {
   const flashes = useDash((s) => s.flashQueue);
   const consumeFlash = useDash((s) => s.consumeFlash);
   const winFlash = flashes.find((f) => f.kind === "win");
+  const entryFlash = flashes.find((f) => f.kind === "entry");
+  const entryGif = entryFlash ? pickEntryGif(entryFlash.id) : null;
 
   useEffect(() => {
     if (flashes.length === 0) return;
-    // Wins dismiss exactly after the gif has played GIF_LOOPS full runs (no partial loop).
-    const WIN_MS = GIF_LOOPS * GIF_LOOP_MS + 300;  // +300ms tail so last loop isn't cut
-    const timers = flashes.map((f) =>
-      window.setTimeout(() => consumeFlash(f.id), f.kind === "win" ? WIN_MS : 3500),
-    );
+    const timers = flashes.map((f) => {
+      let ms: number;
+      if (f.kind === "win") {
+        ms = dismissMsFor(WIN_GIF.loopMs);
+      } else if (f.kind === "entry") {
+        ms = dismissMsFor(pickEntryGif(f.id).loopMs);
+      } else {
+        ms = 3500;
+      }
+      return window.setTimeout(() => consumeFlash(f.id), ms);
+    });
     return () => {
       timers.forEach((t) => clearTimeout(t));
     };
@@ -41,19 +66,56 @@ export default function AnimationCoordinator() {
             className="fixed inset-0 z-[60] flex items-center justify-center pointer-events-none"
           >
             <div className="relative flex flex-col items-center">
-              {/* Glow backdrop */}
               <div className="absolute inset-0 -m-10 rounded-full bg-emerald-500/20 blur-3xl" />
-              {/* The GIF itself — remounted at loop boundaries so it plays GIF_LOOPS
-                   times even when the file's own loop-count is 1. The last loop is NOT
-                   cut: we stop remounting after (GIF_LOOPS - 1) ticks and let the final
-                   playthrough run to completion before the overlay dismisses. */}
               <LoopingGif
-                src="/dicaprio.gif"
+                src={WIN_GIF.src}
+                loopMs={WIN_GIF.loopMs}
                 className="relative w-[26vw] max-w-[420px] min-w-[260px] rounded-2xl border-2 border-emerald-400/60 shadow-[0_0_60px_rgba(52,211,153,0.55)]"
               />
-              {/* PnL chip */}
               <div className="relative -mt-4 px-4 py-1.5 rounded-full bg-ink-950/90 border border-emerald-400/60 font-mono text-emerald-200 text-lg shadow-2xl">
                 WIN {fmtMoney(winFlash.amount ?? 0)}
+              </div>
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* Trade-open burst — random gif from ENTRY_GIFS, color tied to direction */}
+      <AnimatePresence>
+        {entryFlash && entryGif && (
+          <motion.div
+            key={entryFlash.id}
+            initial={{ opacity: 0, scale: 0.6, rotate: -4 }}
+            animate={{ opacity: 1, scale: 1, rotate: 0 }}
+            exit={{ opacity: 0, scale: 0.85, rotate: 3 }}
+            transition={{ duration: 0.45, ease: [0.22, 1, 0.36, 1] }}
+            className="fixed inset-0 z-[60] flex items-center justify-center pointer-events-none"
+          >
+            <div className="relative flex flex-col items-center">
+              <div
+                className={`absolute inset-0 -m-10 rounded-full blur-3xl ${
+                  entryFlash.direction === "DOWN"
+                    ? "bg-rose-500/20"
+                    : "bg-emerald-500/20"
+                }`}
+              />
+              <LoopingGif
+                src={entryGif.src}
+                loopMs={entryGif.loopMs}
+                className={`relative w-[26vw] max-w-[420px] min-w-[260px] rounded-2xl border-2 shadow-[0_0_60px_rgba(52,211,153,0.55)] ${
+                  entryFlash.direction === "DOWN"
+                    ? "border-rose-400/60 shadow-[0_0_60px_rgba(251,113,133,0.55)]"
+                    : "border-emerald-400/60 shadow-[0_0_60px_rgba(52,211,153,0.55)]"
+                }`}
+              />
+              <div
+                className={`relative -mt-4 px-4 py-1.5 rounded-full bg-ink-950/90 border font-mono text-lg shadow-2xl ${
+                  entryFlash.direction === "DOWN"
+                    ? "border-rose-400/60 text-rose-200"
+                    : "border-emerald-400/60 text-emerald-200"
+                }`}
+              >
+                trade opening !{entryFlash.direction ? ` ${entryFlash.direction}` : ""}
               </div>
             </div>
           </motion.div>
@@ -137,19 +199,31 @@ export default function AnimationCoordinator() {
   );
 }
 
-function LoopingGif({ src, className }: { src: string; className?: string }) {
+// Remounts the <img> at each loop boundary so the gif visibly replays for
+// `loops` iterations even if the file's loop-count header is 1. The final
+// playthrough runs uninterrupted to its end before the parent dismisses.
+function LoopingGif({
+  src,
+  loopMs,
+  loops = GIF_LOOPS,
+  className,
+}: {
+  src: string;
+  loopMs: number;
+  loops?: number;
+  className?: string;
+}) {
   const [loop, setLoop] = useState(0);
   useEffect(() => {
-    if (loop >= GIF_LOOPS - 1) return;  // last loop runs uninterrupted to its end
-    const id = window.setTimeout(() => setLoop((n) => n + 1), GIF_LOOP_MS);
+    if (loop >= loops - 1) return;
+    const id = window.setTimeout(() => setLoop((n) => n + 1), loopMs);
     return () => clearTimeout(id);
-  }, [loop]);
-  // Query string guarantees a fresh decode even if the browser cached aggressively.
+  }, [loop, loops, loopMs]);
   return (
     <img
       key={loop}
       src={loop === 0 ? src : `${src}?r=${loop}`}
-      alt="cheers"
+      alt=""
       className={className}
     />
   );

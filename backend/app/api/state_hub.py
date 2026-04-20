@@ -25,6 +25,7 @@ from datetime import datetime, timezone
 from ..models import (
     BootstrapPayload,
     ChartMarker,
+    EdgeRatio,
     InstanceStats,
     LivenessInfo,
     PositionState,
@@ -183,24 +184,7 @@ class Hub:
 
         liveness = current_liveness()
 
-        edge_up = None
-        edge_down = None
-        if lb_row and terminal.probabilities:
-            params = lb_row.params
-            model_up = (
-                terminal.probabilities.avg_above
-                or terminal.probabilities.mc_above
-                or terminal.probabilities.ssvi_surface_above
-            )
-            model_down = (
-                terminal.probabilities.avg_below
-                or terminal.probabilities.mc_below
-                or terminal.probabilities.ssvi_surface_below
-            )
-            market_up = terminal.polymarket.prob_up
-            market_down = terminal.polymarket.prob_down
-            edge_up = compute_edge("UP", model_up, market_up, params.alpha_up, params.floor_up)
-            edge_down = compute_edge("DOWN", model_down, market_down, params.alpha_down, params.floor_down)
+        edge_up, edge_down = self._edges_from(terminal, lb_row)
 
         return BootstrapPayload(
             mode=settings.mode,
@@ -233,6 +217,37 @@ class Hub:
             window_end_iso=_window_iso(slug, 900),
             equity_series=equity_series,
         )
+
+    @staticmethod
+    def _edges_from(terminal: TerminalSnapshot, lb_row) -> tuple[Optional["EdgeRatio"], Optional["EdgeRatio"]]:
+        if not lb_row or not terminal.probabilities:
+            return None, None
+        params = lb_row.params
+        model_up = (
+            terminal.probabilities.avg_above
+            or terminal.probabilities.mc_above
+            or terminal.probabilities.ssvi_surface_above
+        )
+        model_down = (
+            terminal.probabilities.avg_below
+            or terminal.probabilities.mc_below
+            or terminal.probabilities.ssvi_surface_below
+        )
+        market_up = terminal.polymarket.prob_up if terminal.polymarket else None
+        market_down = terminal.polymarket.prob_down if terminal.polymarket else None
+        return (
+            compute_edge("UP", model_up, market_up, params.alpha_up, params.floor_up),
+            compute_edge("DOWN", model_down, market_down, params.alpha_down, params.floor_down),
+        )
+
+    def current_edges(self, instance_id: int) -> tuple[Optional["EdgeRatio"], Optional["EdgeRatio"]]:
+        """Compute live edges from current terminal/polymarket state for the given instance."""
+        terminal = self.terminal.latest or TerminalSnapshot()
+        price_source = self.polymarket.latest or self.orderbook.latest
+        if price_source is not None:
+            terminal.polymarket = price_source
+        lb_row = self.leaderboard.row(instance_id)
+        return self._edges_from(terminal, lb_row)
 
     @staticmethod
     def _window_bounds(slug: Optional[str]) -> Optional[tuple[int, int]]:

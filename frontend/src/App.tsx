@@ -59,7 +59,7 @@ export default function App() {
             <div className="min-h-0">
               <ProbabilityPanel />
             </div>
-            <div className="min-h-0">
+            <div className="min-h-0 self-start">
               <EdgeRatioPanel />
             </div>
           </section>

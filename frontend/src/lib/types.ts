@@ -245,6 +245,11 @@ export interface LeaderboardUpdateData {
   top: LeaderboardRow[];
 }
 
+export interface EdgeUpdateData {
+  edge_up: EdgeRatio | null;
+  edge_down: EdgeRatio | null;
+}
+
 export interface PongData {
   t: number;
 }
@@ -259,6 +264,7 @@ export type WsEnvelope =
   | WsEnvelopeBase<"liveness.update", LivenessInfo>
   | WsEnvelopeBase<"liveness.tick", LivenessInfo>
   | WsEnvelopeBase<"leaderboard.update", LeaderboardUpdateData>
+  | WsEnvelopeBase<"edge.update", EdgeUpdateData>
   | WsEnvelopeBase<"calibration.start", CalibrationStatus>
   | WsEnvelopeBase<"calibration.end", CalibrationStatus>
   | WsEnvelopeBase<"trade.append", TradeEvent>
