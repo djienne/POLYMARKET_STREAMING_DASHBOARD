@@ -1,0 +1,287 @@
+"""Central registry of collector instances and derived snapshots.
+
+Exposed to routes so both HTTP + WS can build the same payloads.
+"""
+from __future__ import annotations
+
+import time
+from typing import Optional
+
+from ..collector.calibration_watcher import CalibrationWatcher
+from ..collector.docker_log_tail import DockerLogTail
+from ..collector.leaderboard_reader import LeaderboardReader
+from ..collector.liveness import current_liveness
+from ..collector.orderbook_tail import OrderbookTail
+from ..collector.polymarket_client import PolymarketClient
+from ..collector.state_reader import StateReader
+from ..collector.terminal_reader import TerminalReader
+from ..collector.trades_tail import TradesTail
+from ..config import settings
+from ..derive.edge import compute_edge
+from ..derive.equity import equity_curve, equity_timeseries
+from ..derive.window import compute_window
+from datetime import datetime, timezone
+
+from ..models import (
+    BootstrapPayload,
+    ChartMarker,
+    InstanceStats,
+    LivenessInfo,
+    PositionState,
+    SharedConfig,
+    TerminalSnapshot,
+    WindowState,
+)
+
+
+class Hub:
+    def __init__(self) -> None:
+        self.terminal = TerminalReader(settings.terminal_path())
+        self.state = StateReader(
+            path_fn=lambda: settings.state_snapshot_path() if settings.mode == "dry_run"
+            else settings.live_state_path()
+        )
+        self.trades = TradesTail(path_fn=lambda: settings.trades_path())
+        self.leaderboard = LeaderboardReader(path_fn=lambda: settings.leaderboard_path())
+        self.orderbook = OrderbookTail(path_fn=lambda: settings.orderbook_path())
+        self.docker_log = DockerLogTail(container=settings.docker_container)
+        self.polymarket = PolymarketClient(slug_fn=lambda: self._current_slug())
+        self.calibration = CalibrationWatcher(
+            log_paths=settings.trader_log_paths(),
+            terminal_reader=self.terminal,
+        )
+        self._shared_cfg_cache: Optional[SharedConfig] = None
+        self._shared_cfg_mtime: Optional[float] = None
+
+    def _current_slug(self) -> Optional[str]:
+        """Resolve the current 15-min market slug from the freshest available signal."""
+        # Refresh state so we can look for any active open position
+        self.state.read_if_changed()
+        self.terminal.read_if_changed()
+
+        # 1. Terminal JSON (rare but accurate)
+        term = self.terminal.latest
+        slug = term.market.slug if term and term.market else None
+
+        # 2. Any instance with an open position is by definition trading the active market
+        if not slug:
+            for inst in (self.state.raw.get("instances") or {}).values():
+                pos = inst.get("position")
+                if pos and pos.get("market_id"):
+                    slug = pos["market_id"]
+                    break
+
+        # 3. Fallback: current quarter-hour boundary.
+        import re
+        import time as _t
+        now = int(_t.time())
+        m = re.search(r"btc-updown-15m-(\d+)", slug or "")
+        if not slug or not m or (int(m.group(1)) + 900) < now:
+            slug = f"btc-updown-15m-{(now // 900) * 900}"
+        return slug
+
+    def shared_config(self) -> SharedConfig:
+        import json
+        path = settings.grid_config_path() if settings.mode == "dry_run" else settings.live_config_path()
+        try:
+            mtime = path.stat().st_mtime
+        except FileNotFoundError:
+            return self._shared_cfg_cache or SharedConfig()
+        if self._shared_cfg_mtime == mtime and self._shared_cfg_cache is not None:
+            return self._shared_cfg_cache
+        try:
+            raw = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            return SharedConfig()
+        cfg = SharedConfig(
+            starting_capital=raw.get("starting_capital"),
+            order_size_pct=raw.get("order_size_pct"),
+            friction_pct=raw.get("friction_pct"),
+            max_entry_price=raw.get("max_entry_price"),
+            no_trade_first_s=raw.get("no_trade_first_seconds"),
+            no_trade_last_s=raw.get("no_trade_last_seconds"),
+            grace_period_s=raw.get("grace_period_seconds"),
+            liquidity_mode=raw.get("liquidity_mode"),
+        )
+        self._shared_cfg_cache = cfg
+        self._shared_cfg_mtime = mtime
+        return cfg
+
+    def build_bootstrap(self, instance_id: int) -> BootstrapPayload:
+        # Force refresh
+        self.state.read_if_changed()
+        self.terminal.read_if_changed()
+        self.leaderboard.read_if_changed()
+        self.orderbook.poll()
+        slug = self._current_slug()
+
+        instance = self.state.instance(instance_id)
+        lb_row = self.leaderboard.row(instance_id)
+        if instance and lb_row:
+            instance.rank = lb_row.rank
+            instance.params = lb_row.params
+
+        position = self.state.position(instance_id)
+        pnls = self.state.trade_pnls(instance_id)
+        equity = equity_curve(pnls, starting_capital=1000.0)
+        equity_series = equity_timeseries(
+            self.trades.chronological(instance_id), starting_capital=1000.0
+        )
+
+        terminal = self.terminal.latest or TerminalSnapshot()
+        # Polymarket prices: direct CLOB API (primary) → orderbook CSV fallback for paper mode.
+        price_source = self.polymarket.latest or self.orderbook.latest
+        if price_source is not None:
+            terminal.polymarket = price_source
+
+        # Tell the terminal reader to reset its model-probability history on new market
+        self.terminal.reset_history_if_new_slug(slug)
+        if terminal.market is not None and not terminal.market.slug:
+            terminal.market.slug = slug
+            import re
+            m = re.search(r"btc-updown-15m-(\d+)", slug)
+            if m:
+                start = int(m.group(1))
+                terminal.market.window_start_unix = start
+                terminal.market.window_end_unix = start + 900
+        window = compute_window(slug)
+
+        trades = self.trades.recent(instance_id, n=50)
+
+        liveness = current_liveness()
+
+        edge_up = None
+        edge_down = None
+        if lb_row and terminal.probabilities:
+            params = lb_row.params
+            model_up = (
+                terminal.probabilities.avg_above
+                or terminal.probabilities.mc_above
+                or terminal.probabilities.ssvi_surface_above
+            )
+            model_down = (
+                terminal.probabilities.avg_below
+                or terminal.probabilities.mc_below
+                or terminal.probabilities.ssvi_surface_below
+            )
+            market_up = terminal.polymarket.prob_up
+            market_down = terminal.polymarket.prob_down
+            edge_up = compute_edge("UP", model_up, market_up, params.alpha_up, params.floor_up)
+            edge_down = compute_edge("DOWN", model_down, market_down, params.alpha_down, params.floor_down)
+
+        return BootstrapPayload(
+            mode=settings.mode,
+            instance=instance,
+            position=position,
+            terminal=terminal,
+            window=window,
+            trades=trades,
+            equity=equity,
+            leaderboard_top=self.leaderboard.top(15),
+            liveness=liveness,
+            calibration=self.calibration.status,
+            edge_up=edge_up,
+            edge_down=edge_down,
+            shared_config=self.shared_config(),
+            series_up=self._scope_series(
+                self.polymarket.series("UP") or self.orderbook.series("UP"), slug
+            ),
+            series_down=self._scope_series(
+                self.polymarket.series("DOWN") or self.orderbook.series("DOWN"), slug
+            ),
+            model_up=self._scope_series(
+                self.docker_log.model_series("UP") or self.terminal.model_series("UP"), slug
+            ),
+            model_down=self._scope_series(
+                self.docker_log.model_series("DOWN") or self.terminal.model_series("DOWN"), slug
+            ),
+            markers=self._markers_for(instance_id, slug),
+            window_start_iso=_window_iso(slug, 0),
+            window_end_iso=_window_iso(slug, 900),
+            equity_series=equity_series,
+        )
+
+    @staticmethod
+    def _window_bounds(slug: Optional[str]) -> Optional[tuple[int, int]]:
+        if not slug:
+            return None
+        import re
+        m = re.search(r"btc-updown-15m-(\d+)", slug)
+        if not m:
+            return None
+        start = int(m.group(1))
+        return start, start + 900
+
+    @classmethod
+    def _scope_series(cls, rows: list, slug: Optional[str]) -> list:
+        bounds = cls._window_bounds(slug)
+        if not bounds:
+            return rows
+        start, end = bounds
+        out = []
+        for p in rows:
+            t = p["t"] if isinstance(p, dict) else p.t
+            try:
+                ts = datetime.fromisoformat(t.replace("Z", "+00:00")).timestamp()
+            except (ValueError, AttributeError):
+                continue
+            if start <= ts <= end:
+                out.append(p)
+        return out
+
+    def _markers_for(self, instance_id: int, slug: Optional[str]) -> list[ChartMarker]:
+        bounds = self._window_bounds(slug)
+        if not bounds:
+            return []
+        start, end = bounds
+        out: list[ChartMarker] = []
+        for ev in self.trades.recent(instance_id, n=200):
+            if ev.market_id and ev.market_id != slug:
+                continue
+            try:
+                ts = datetime.fromisoformat(ev.timestamp.replace("Z", "+00:00")).timestamp()
+            except (ValueError, AttributeError):
+                continue
+            if not (start <= ts <= end):
+                continue
+            kind = None
+            if ev.event == "ENTRY":
+                kind = "ENTRY"
+            elif ev.event in ("TP_FILLED", "WIN_EXPIRY"):
+                kind = "WIN"
+            elif ev.event in ("STOP_LOSS", "LOSS_EXPIRY"):
+                kind = "LOSS"
+            if kind is None:
+                continue
+            price = ev.entry_price if kind == "ENTRY" else ev.exit_price
+            out.append(
+                ChartMarker(
+                    t=ev.timestamp,
+                    kind=kind,  # type: ignore[arg-type]
+                    side=(ev.direction if ev.direction in ("UP", "DOWN") else None),
+                    price=price,
+                    pnl=ev.pnl,
+                )
+            )
+        return out
+
+
+def _window_iso(slug: Optional[str], offset: int) -> Optional[str]:
+    if not slug:
+        return None
+    import re
+    m = re.search(r"btc-updown-15m-(\d+)", slug)
+    if not m:
+        return None
+    ts = int(m.group(1)) + offset
+    return datetime.fromtimestamp(ts, tz=timezone.utc).isoformat()
+
+
+hub: Optional[Hub] = None
+
+
+def get_hub() -> Hub:
+    global hub
+    if hub is None:
+        hub = Hub()
+    return hub

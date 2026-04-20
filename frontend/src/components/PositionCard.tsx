@@ -1,0 +1,144 @@
+import { AnimatePresence, motion } from "framer-motion";
+import { useDash } from "../lib/store";
+import { fmtMoney } from "../lib/format";
+
+export default function PositionCard() {
+  const pos = useDash((s) => s.position);
+  const mode = useDash((s) => s.mode);
+  const terminal = useDash((s) => s.terminal);
+  const flashes = useDash((s) => s.flashQueue);
+  const hasFlash = flashes.length > 0;
+
+  const open = pos.open;
+  const dirUp = open?.direction === "UP";
+  const dirColor = dirUp ? "text-emerald-300" : "text-rose-300";
+  const dirRing = dirUp
+    ? "ring-emerald-400/40"
+    : "ring-rose-400/40";
+
+  // Live position PnL estimate using latest market mid
+  let livePnL: number | null = null;
+  if (open && terminal?.polymarket) {
+    const market =
+      open.direction === "UP"
+        ? terminal.polymarket.prob_up
+        : terminal.polymarket.prob_down;
+    if (market != null && open.shares) {
+      livePnL = (market - open.entry_price) * open.shares;
+    }
+  }
+
+  return (
+    <div
+      className={`card p-4 h-full flex flex-col relative overflow-hidden transition-shadow ${
+        open ? `ring-1 ${dirRing}` : ""
+      }`}
+    >
+      <AnimatePresence>
+        {hasFlash && open && (
+          <motion.div
+            key="ring"
+            initial={{ opacity: 0.6, scale: 1 }}
+            animate={{ opacity: 0, scale: 1.3 }}
+            exit={{ opacity: 0 }}
+            transition={{ duration: 1.2, ease: "easeOut" }}
+            className={`absolute inset-2 rounded-xl ${
+              dirUp ? "bg-emerald-500/10" : "bg-rose-500/10"
+            } pointer-events-none`}
+          />
+        )}
+      </AnimatePresence>
+
+      <div className="flex items-baseline justify-between mb-3">
+        <h2 className="card-header">Position</h2>
+        {mode === "live" ? (
+          <GracePill />
+        ) : (
+          <span className="chip chip-mute text-[10px]">grid · n/a grace</span>
+        )}
+      </div>
+
+      {open ? (
+        <div className="space-y-3">
+          <div className="flex items-center gap-3">
+            <span className={`text-2xl font-semibold ${dirColor}`}>
+              {open.direction}
+            </span>
+            <span className="text-slate-500 text-xs">
+              opened {open.entered_at?.slice(11, 19) ?? "—"}
+            </span>
+          </div>
+          <div className="grid grid-cols-3 gap-3">
+            <Stat label="entry" value={open.entry_price.toFixed(4)} />
+            <Stat label="shares" value={open.shares.toFixed(3)} />
+            <Stat
+              label="notional"
+              value={
+                open.notional != null ? `$${open.notional.toFixed(2)}` : "—"
+              }
+            />
+            <Stat
+              label="tp"
+              value={open.tp_target != null ? open.tp_target.toFixed(4) : "—"}
+            />
+            <Stat
+              label="sl"
+              value={
+                open.sl_target != null && open.sl_target > 0
+                  ? open.sl_target.toFixed(4)
+                  : "off"
+              }
+            />
+            <Stat
+              label="unrealized"
+              value={fmtMoney(livePnL)}
+              color={
+                livePnL == null
+                  ? "text-slate-400"
+                  : livePnL >= 0
+                    ? "text-emerald-300"
+                    : "text-rose-300"
+              }
+            />
+          </div>
+        </div>
+      ) : (
+        <div className="text-slate-500 py-4 text-sm">
+          <span className="text-slate-300">Flat</span> · waiting for edge
+        </div>
+      )}
+    </div>
+  );
+}
+
+function Stat({
+  label,
+  value,
+  color,
+}: {
+  label: string;
+  value: string;
+  color?: string;
+}) {
+  return (
+    <div>
+      <div className="stat-label">{label}</div>
+      <div className={`font-mono text-base ${color ?? "text-slate-100"}`}>
+        {value}
+      </div>
+    </div>
+  );
+}
+
+function GracePill() {
+  const pos = useDash((s) => s.position);
+  const rem = pos.grace_remaining_s;
+  if (rem == null || rem <= 0) {
+    return <span className="chip chip-ok text-[10px]">grace clear</span>;
+  }
+  return (
+    <span className="chip chip-warn text-[10px] font-mono">
+      grace {rem.toFixed(0)}s
+    </span>
+  );
+}

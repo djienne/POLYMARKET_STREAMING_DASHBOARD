@@ -1,0 +1,78 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  html, body, #root {
+    min-height: 100%;
+  }
+  body {
+    @apply bg-ink-950 text-slate-200 font-sans antialiased;
+    font-feature-settings: "ss01", "cv11";
+  }
+  * {
+    font-variant-numeric: tabular-nums;
+  }
+}
+
+/* Lock dashboard to 16:9 so 1080p capture looks perfect.
+   Width = 100vw, height scales via aspect-ratio. If the viewport is shorter than
+   the resulting height, the page scrolls — the dashboard keeps its 16:9 frame. */
+.stream-frame {
+  width: 100vw;
+  aspect-ratio: 16 / 9;
+  overflow: hidden;
+  box-shadow: 0 0 48px rgba(0, 0, 0, 0.45);
+}
+
+@layer components {
+  .card {
+    @apply bg-ink-900 border border-ink-800 rounded-xl shadow-[inset_0_1px_0_0_rgba(255,255,255,0.02)] overflow-hidden;
+  }
+  .card-header {
+    @apply uppercase tracking-[0.14em] text-[10px] text-slate-400 font-medium;
+  }
+  .stat-label {
+    @apply uppercase tracking-[0.12em] text-[10px] text-slate-500;
+  }
+  .stat-value {
+    @apply font-mono text-lg text-slate-100;
+  }
+  .chip {
+    @apply inline-flex items-center gap-1 text-[11px] px-2 py-0.5 rounded-full border;
+  }
+  .chip-up    { @apply bg-emerald-500/10 text-emerald-300 border-emerald-500/30; }
+  .chip-down  { @apply bg-rose-500/10 text-rose-300 border-rose-500/30; }
+  .chip-warn  { @apply bg-amber-500/10 text-amber-300 border-amber-500/30; }
+  .chip-ok    { @apply bg-cyan-500/10 text-cyan-300 border-cyan-500/30; }
+  .chip-mute  { @apply bg-slate-500/10 text-slate-400 border-slate-500/30; }
+
+  .dot {
+    @apply inline-block w-2 h-2 rounded-full;
+  }
+
+  .shimmer-bar {
+    background: linear-gradient(
+      110deg,
+      rgba(148, 163, 184, 0.0) 0%,
+      rgba(148, 163, 184, 0.12) 40%,
+      rgba(148, 163, 184, 0.28) 50%,
+      rgba(148, 163, 184, 0.12) 60%,
+      rgba(148, 163, 184, 0.0) 100%
+    );
+    background-size: 200% 100%;
+  }
+}
+
+::-webkit-scrollbar { width: 8px; height: 8px; }
+::-webkit-scrollbar-thumb { background: rgba(148,163,184,0.18); border-radius: 4px; }
+::-webkit-scrollbar-track { background: transparent; }
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.001ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.001ms !important;
+    scroll-behavior: auto !important;
+  }
+}
