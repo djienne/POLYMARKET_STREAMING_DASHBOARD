@@ -71,7 +71,7 @@ const initialCalibration: CalibrationStatus = {
 
 export const useDash = create<DashState>((set, get) => ({
   mode: "dry_run",
-  selectedInstanceId: 773,
+  selectedInstanceId: 100,
   instance: null,
   position: { open: null },
   terminal: null,
