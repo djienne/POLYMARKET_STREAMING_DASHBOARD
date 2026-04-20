@@ -45,8 +45,16 @@ def _parse_rfc3339_prefix(line: str) -> Optional[datetime]:
 class DockerLogTail:
     """Streams model UP/DOWN probabilities from the bot's Docker container logs."""
 
-    def __init__(self, container: str) -> None:
+    def __init__(
+        self,
+        container: str,
+        slug_fn: Optional[object] = None,
+    ) -> None:
         self.container = container
+        # Callable returning the current market slug. When slug changes between polls,
+        # model series auto-reset. tick lines don't include the slug so we can't rely
+        # on SLUG_RE in log lines alone.
+        self._slug_fn = slug_fn
         self._model_up: Deque[tuple[str, float]] = deque(maxlen=MAX_POINTS)
         self._model_down: Deque[tuple[str, float]] = deque(maxlen=MAX_POINTS)
         self._cur_slug: Optional[str] = None
@@ -100,6 +108,15 @@ class DockerLogTail:
     async def poll(self, since_seconds: float) -> bool:
         if self._disabled or not self.container:
             return False
+        # Auto-reset on market boundary — tick lines don't carry the slug, so we rely
+        # on the external slug_fn (state_hub._current_slug) to detect the transition.
+        if self._slug_fn is not None:
+            try:
+                cur = self._slug_fn()
+            except Exception:
+                cur = None
+            if cur:
+                self.reset_for_slug(cur)
         cmd = [
             "docker", "logs",
             "-t",  # prepend RFC3339Nano UTC timestamp to every line

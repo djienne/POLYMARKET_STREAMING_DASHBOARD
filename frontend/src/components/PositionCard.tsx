@@ -1,6 +1,6 @@
 import { AnimatePresence, motion } from "framer-motion";
 import { useDash } from "../lib/store";
-import { fmtMoney } from "../lib/format";
+import { fmtLocalHMS, fmtMoney } from "../lib/format";
 
 export default function PositionCard() {
   const pos = useDash((s) => s.position);
@@ -12,9 +12,7 @@ export default function PositionCard() {
   const open = pos.open;
   const dirUp = open?.direction === "UP";
   const dirColor = dirUp ? "text-emerald-300" : "text-rose-300";
-  const dirRing = dirUp
-    ? "ring-emerald-400/40"
-    : "ring-rose-400/40";
+  const dirRing = dirUp ? "ring-emerald-400/40" : "ring-rose-400/40";
 
   // Live position PnL estimate using latest market mid
   let livePnL: number | null = null;
@@ -30,7 +28,7 @@ export default function PositionCard() {
 
   return (
     <div
-      className={`card p-4 h-full flex flex-col relative overflow-hidden transition-shadow ${
+      className={`card p-3 h-full flex flex-col relative overflow-hidden transition-shadow ${
         open ? `ring-1 ${dirRing}` : ""
       }`}
     >
@@ -49,7 +47,7 @@ export default function PositionCard() {
         )}
       </AnimatePresence>
 
-      <div className="flex items-baseline justify-between mb-3">
+      <div className="flex items-baseline justify-between mb-2">
         <h2 className="card-header">Position</h2>
         {mode === "live" ? (
           <GracePill />
@@ -59,16 +57,16 @@ export default function PositionCard() {
       </div>
 
       {open ? (
-        <div className="space-y-3">
-          <div className="flex items-center gap-3">
-            <span className={`text-2xl font-semibold ${dirColor}`}>
+        <div className="space-y-2">
+          <div className="flex items-baseline gap-2">
+            <span className={`text-lg font-semibold ${dirColor}`}>
               {open.direction}
             </span>
-            <span className="text-slate-500 text-xs">
-              opened {open.entered_at?.slice(11, 19) ?? "—"}
+            <span className="text-slate-500 text-[11px] font-mono">
+              opened {fmtLocalHMS(open.entered_at)}
             </span>
           </div>
-          <div className="grid grid-cols-3 gap-3">
+          <div className="grid grid-cols-3 gap-x-3 gap-y-1.5">
             <Stat label="entry" value={open.entry_price.toFixed(4)} />
             <Stat label="shares" value={open.shares.toFixed(3)} />
             <Stat
@@ -103,7 +101,7 @@ export default function PositionCard() {
           </div>
         </div>
       ) : (
-        <div className="text-slate-500 py-4 text-sm">
+        <div className="text-slate-500 py-2 text-sm">
           <span className="text-slate-300">Flat</span> · waiting for edge
         </div>
       )}
@@ -123,7 +121,7 @@ function Stat({
   return (
     <div>
       <div className="stat-label">{label}</div>
-      <div className={`font-mono text-base ${color ?? "text-slate-100"}`}>
+      <div className={`font-mono text-sm ${color ?? "text-slate-100"}`}>
         {value}
       </div>
     </div>

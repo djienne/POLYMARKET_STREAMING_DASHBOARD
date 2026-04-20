@@ -34,3 +34,61 @@ export function pnlColor(v: number | null | undefined): string {
   if (v < 0) return "text-rose-300";
   return "text-slate-300";
 }
+
+// ──────── Local time (Europe/Paris — CET/CEST; same as Amsterdam). ────────
+// Intl handles DST automatically.
+const TZ = "Europe/Paris";
+
+function _toDate(ts: number | string | Date | null | undefined): Date | null {
+  if (ts == null) return null;
+  const d = ts instanceof Date ? ts : new Date(ts);
+  return Number.isFinite(d.getTime()) ? d : null;
+}
+
+export function fmtLocalHM(ts: number | string | Date | null | undefined): string {
+  const d = _toDate(ts);
+  if (!d) return "—";
+  return d.toLocaleTimeString("en-GB", {
+    hour12: false,
+    timeZone: TZ,
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+}
+
+export function fmtLocalHMS(ts: number | string | Date | null | undefined): string {
+  const d = _toDate(ts);
+  if (!d) return "—";
+  return d.toLocaleTimeString("en-GB", {
+    hour12: false,
+    timeZone: TZ,
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+  });
+}
+
+export function fmtLocalDate(ts: number | string | Date | null | undefined): string {
+  const d = _toDate(ts);
+  if (!d) return "—";
+  return d.toLocaleDateString("en-GB", {
+    timeZone: TZ,
+    month: "2-digit",
+    day: "2-digit",
+  });
+}
+
+export function fmtLocalFull(ts: number | string | Date | null | undefined): string {
+  const d = _toDate(ts);
+  if (!d) return "—";
+  return d.toLocaleString("en-GB", {
+    timeZone: TZ,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+    hour12: false,
+  });
+}

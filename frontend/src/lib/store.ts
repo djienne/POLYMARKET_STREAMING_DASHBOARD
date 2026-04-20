@@ -152,35 +152,35 @@ export const useDash = create<DashState>((set, get) => ({
           incoming.market?.slug
             ? incoming.market
             : { ...incoming.market, slug: prev?.market?.slug ?? incoming.market?.slug };
-        const probs = incoming.probabilities;
-        const up =
-          probs?.avg_above ?? probs?.mc_above ?? probs?.ssvi_surface_above ?? null;
-        const down =
-          probs?.avg_below ?? probs?.mc_below ?? probs?.ssvi_surface_below ?? null;
-        const ts = incoming.timestamp ?? new Date().toISOString();
-        set((st) => ({
-          terminal: { ...incoming, polymarket, market },
-          modelUp: up != null
-            ? [...st.modelUp, { t: ts, v: up }].slice(-400)
-            : st.modelUp,
-          modelDown: down != null
-            ? [...st.modelDown, { t: ts, v: down }].slice(-400)
-            : st.modelDown,
-        }));
+        set((st) => {
+          const patch = ensureSlug(st, market?.slug ?? null);
+          return { ...patch, terminal: { ...incoming, polymarket, market } };
+        });
         recomputeEdge(get, set);
         break;
       }
       case "orderbook.update": {
         const prices = d.prices as PolymarketPrices | null;
+        const incomingUp = (d.series_up ?? null) as PricePoint[] | null;
+        const incomingDown = (d.series_down ?? null) as PricePoint[] | null;
         set((st) => ({
           terminal:
             st.terminal && prices
               ? { ...st.terminal, polymarket: prices }
               : st.terminal,
-          seriesUp: (d.series_up ?? st.seriesUp) as PricePoint[],
-          seriesDown: (d.series_down ?? st.seriesDown) as PricePoint[],
+          seriesUp: incomingUp ?? st.seriesUp,
+          seriesDown: incomingDown ?? st.seriesDown,
         }));
         recomputeEdge(get, set);
+        break;
+      }
+      case "model.update": {
+        const incomingUp = (d.series_up ?? null) as PricePoint[] | null;
+        const incomingDown = (d.series_down ?? null) as PricePoint[] | null;
+        set((st) => ({
+          modelUp: incomingUp ?? st.modelUp,
+          modelDown: incomingDown ?? st.modelDown,
+        }));
         break;
       }
       case "instance.update":
@@ -190,9 +190,20 @@ export const useDash = create<DashState>((set, get) => ({
           equity: d.equity,
         });
         break;
-      case "window.tick":
-        set({ window: d as WindowState });
+      case "window.tick": {
+        const win = d as WindowState;
+        const bounds = windowBoundsFromSlug(win.slug);
+        set((st) => {
+          const patch = ensureSlug(st, win.slug ?? null);
+          return {
+            ...patch,
+            window: win,
+            windowStartIso: bounds?.startIso ?? st.windowStartIso,
+            windowEndIso: bounds?.endIso ?? st.windowEndIso,
+          };
+        });
         break;
+      }
       case "liveness.update":
       case "liveness.tick":
         set({ liveness: d as LivenessInfo });
@@ -215,6 +226,40 @@ export const useDash = create<DashState>((set, get) => ({
   consumeFlash: (id) =>
     set((st) => ({ flashQueue: st.flashQueue.filter((f) => f.id !== id) })),
 }));
+
+/**
+ * Slug transition handler.
+ *
+ * The PriceChart filters points and markers by window bounds (derived from slug)
+ * at render time, so we don't need to clear stored series aggressively here —
+ * doing so was causing "blank" moments when a fresh `orderbook.update` had
+ * already arrived before the next `model.update`.
+ *
+ * The backend collectors each own a slug_fn and reset their own internal deques
+ * on boundary, so the data streaming into the store is already scoped. This
+ * function is now a no-op kept only for a potential future hook point.
+ */
+function ensureSlug(
+  _st: DashState,
+  _newSlug: string | null,
+): Partial<DashState> {
+  return {};
+}
+
+function windowBoundsFromSlug(slug: string | null | undefined): {
+  startIso: string;
+  endIso: string;
+} | null {
+  if (!slug) return null;
+  const m = /btc-updown-15m-(\d+)/.exec(slug);
+  if (!m) return null;
+  const start = Number(m[1]) * 1000; // ms since epoch
+  const end = start + 900_000;
+  return {
+    startIso: new Date(start).toISOString(),
+    endIso: new Date(end).toISOString(),
+  };
+}
 
 function recomputeEdge(
   get: () => DashState,

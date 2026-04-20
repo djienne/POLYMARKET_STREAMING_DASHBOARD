@@ -8,6 +8,7 @@ import {
   YAxis,
 } from "recharts";
 import { useDash } from "../lib/store";
+import { fmtLocalDate, fmtLocalFull, fmtLocalHM } from "../lib/format";
 
 export default function EquitySparkline() {
   const series = useDash((s) => s.equitySeries);
@@ -92,7 +93,7 @@ export default function EquitySparkline() {
                 fontSize: 11,
               }}
               labelStyle={{ color: "#94a3b8" }}
-              labelFormatter={(v: number) => new Date(v).toISOString().slice(0, 19).replace("T", " ")}
+              labelFormatter={(v: number) => fmtLocalFull(v)}
               formatter={(v: number) => [`$${v.toFixed(2)}`, "equity"]}
             />
             <Area
@@ -111,13 +112,5 @@ export default function EquitySparkline() {
 }
 
 function formatTick(ts: number, multiDay: boolean): string {
-  const d = new Date(ts);
-  if (multiDay) {
-    return `${String(d.getUTCMonth() + 1).padStart(2, "0")}/${String(
-      d.getUTCDate(),
-    ).padStart(2, "0")}`;
-  }
-  return `${String(d.getUTCHours()).padStart(2, "0")}:${String(
-    d.getUTCMinutes(),
-  ).padStart(2, "0")}`;
+  return multiDay ? fmtLocalDate(ts) : fmtLocalHM(ts);
 }

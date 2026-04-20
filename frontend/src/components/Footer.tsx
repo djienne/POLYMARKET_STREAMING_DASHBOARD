@@ -36,8 +36,40 @@ export default function Footer() {
             </>
           )}
         </span>
+        <DevWinTrigger />
       </div>
     </footer>
+  );
+}
+
+/**
+ * Hidden dev button — a 6×6 dot tucked at the very end of the footer.
+ * Click to fire a synthetic "win" flash so the dicaprio.gif overlay can be
+ * verified without waiting for a real TP. Not visually obvious: 10% opacity
+ * at rest, 70% on hover.
+ */
+function DevWinTrigger() {
+  return (
+    <button
+      type="button"
+      title="trigger win"
+      aria-label="trigger win"
+      onClick={() => {
+        useDash.setState((st) => ({
+          flashQueue: [
+            ...st.flashQueue,
+            {
+              id: `dev-${Date.now()}`,
+              kind: "win",
+              direction: "UP",
+              amount: 4.2,
+              at: Date.now(),
+            },
+          ],
+        }));
+      }}
+      className="w-1.5 h-1.5 rounded-full bg-slate-500 opacity-10 hover:opacity-70 transition-opacity"
+    />
   );
 }
 

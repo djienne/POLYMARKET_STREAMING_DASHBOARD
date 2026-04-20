@@ -1,6 +1,6 @@
 import { AnimatePresence, motion } from "framer-motion";
 import { useDash } from "../lib/store";
-import { fmtMoney, fmtPct } from "../lib/format";
+import { fmtLocalHMS, fmtMoney, fmtPct } from "../lib/format";
 
 export default function TradeFeed() {
   const trades = useDash((s) => s.trades);
@@ -48,7 +48,7 @@ export default function TradeFeed() {
                     className="border-t border-ink-800/60"
                   >
                     <td className="py-1 text-slate-400">
-                      {t.timestamp.slice(11, 19)}
+                      {fmtLocalHMS(t.timestamp)}
                     </td>
                     <td className="text-slate-200">{t.event}</td>
                     <td className={dirColor(t.direction)}>{t.direction ?? "—"}</td>

@@ -11,6 +11,7 @@ import {
   YAxis,
 } from "recharts";
 import { useDash } from "../lib/store";
+import { fmtLocalHM, fmtLocalHMS } from "../lib/format";
 
 const UP_COLOR = "#34d399"; // emerald-400
 const DOWN_COLOR = "#fb7185"; // rose-400
@@ -149,9 +150,7 @@ export default function PriceChart() {
                 fontSize: 11,
               }}
               labelStyle={{ color: "#94a3b8" }}
-              labelFormatter={(v: number) =>
-                new Date(v).toISOString().slice(11, 19)
-              }
+              labelFormatter={(v: number) => fmtLocalHMS(v)}
               formatter={(v: number, key: string) => [
                 v != null ? v.toFixed(4) : "—",
                 key
@@ -230,27 +229,65 @@ export default function PriceChart() {
               connectNulls
             />
 
-            {scopedMarkers.map((m, idx) => {
+            {scopedMarkers.flatMap((m, idx) => {
               const ts = toTs(m.t);
-              if (ts == null || m.price == null) return null;
+              if (ts == null || m.price == null) return [];
+              const isEntry = m.kind === "ENTRY";
               const color =
                 m.kind === "ENTRY"
                   ? MARKER_ENTRY
                   : m.kind === "WIN"
                     ? MARKER_WIN
                     : MARKER_LOSS;
-              return (
+              const label =
+                m.kind === "ENTRY"
+                  ? `ENTRY ${m.side ?? ""} ${m.price.toFixed(3)}`
+                  : m.kind === "WIN"
+                    ? `WIN +$${(m.pnl ?? 0).toFixed(2)}`
+                    : `LOSS ${(m.pnl ?? 0) >= 0 ? "+" : "−"}$${Math.abs(m.pnl ?? 0).toFixed(2)}`;
+              const base = `${m.t}-${m.kind}-${idx}`;
+              // Recharts reads its children by type — ReferenceLine/ReferenceDot must be
+              // direct children of LineChart, never wrapped in <g>. Flatten into an array.
+              return [
+                <ReferenceLine
+                  key={`${base}-line`}
+                  x={ts}
+                  stroke={color}
+                  strokeWidth={1.5}
+                  strokeDasharray={isEntry ? "3 3" : "0"}
+                  strokeOpacity={0.55}
+                  isFront
+                  label={{
+                    value: label,
+                    position: "top",
+                    offset: 6,
+                    fill: color,
+                    fontSize: 10,
+                    fontFamily: "monospace",
+                  }}
+                />,
                 <ReferenceDot
-                  key={`${m.t}-${m.kind}-${idx}`}
+                  key={`${base}-halo`}
                   x={ts}
                   y={m.price}
-                  r={m.kind === "ENTRY" ? 4 : 5}
+                  r={isEntry ? 8 : 10}
                   stroke={color}
-                  fill={m.kind === "ENTRY" ? "transparent" : color}
+                  strokeOpacity={0.35}
                   strokeWidth={2}
+                  fill="transparent"
                   isFront
-                />
-              );
+                />,
+                <ReferenceDot
+                  key={`${base}-dot`}
+                  x={ts}
+                  y={m.price}
+                  r={isEntry ? 5 : 6}
+                  stroke={color}
+                  fill={isEntry ? "#0f172a" : color}
+                  strokeWidth={2.5}
+                  isFront
+                />,
+              ];
             })}
           </LineChart>
         </ResponsiveContainer>
@@ -325,8 +362,5 @@ function MarkerHint({
 }
 
 function formatTick(ts: number): string {
-  const d = new Date(ts);
-  return `${String(d.getUTCHours()).padStart(2, "0")}:${String(
-    d.getUTCMinutes(),
-  ).padStart(2, "0")}`;
+  return fmtLocalHM(ts);
 }

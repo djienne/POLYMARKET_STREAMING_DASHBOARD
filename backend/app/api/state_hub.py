@@ -44,7 +44,10 @@ class Hub:
         self.trades = TradesTail(path_fn=lambda: settings.trades_path())
         self.leaderboard = LeaderboardReader(path_fn=lambda: settings.leaderboard_path())
         self.orderbook = OrderbookTail(path_fn=lambda: settings.orderbook_path())
-        self.docker_log = DockerLogTail(container=settings.docker_container)
+        self.docker_log = DockerLogTail(
+            container=settings.docker_container,
+            slug_fn=lambda: self._current_slug(),
+        )
         self.polymarket = PolymarketClient(slug_fn=lambda: self._current_slug())
         self.calibration = CalibrationWatcher(
             log_paths=settings.trader_log_paths(),
