@@ -61,13 +61,49 @@ export default function PriceChart() {
     for (const p of down) push(p.t, "poly_down", p.v);
     for (const p of modelUp) push(p.t, "model_up", p.v);
     for (const p of modelDown) push(p.t, "model_down", p.v);
+
+    if (haveWindow) {
+      const firstPolyUp = firstWindowValue(up, startTs!, endTs!);
+      const firstPolyDown = firstWindowValue(down, startTs!, endTs!);
+      const startRow = map.get(startTs!) ?? { ts: startTs! };
+
+      if (startRow.poly_up == null) {
+        startRow.poly_up = firstPolyUp ?? polymarket?.prob_up ?? undefined;
+      }
+      if (startRow.poly_down == null) {
+        startRow.poly_down = firstPolyDown ?? polymarket?.prob_down ?? undefined;
+      }
+      if (startRow.poly_up != null || startRow.poly_down != null) {
+        map.set(startTs!, startRow);
+      }
+
+      // If we only have a current Polymarket quote but no actual series points yet,
+      // synthesize a second point "now" so the chart renders a flat carried-back line.
+      if (
+        firstPolyUp == null &&
+        firstPolyDown == null &&
+        (polymarket?.prob_up != null || polymarket?.prob_down != null)
+      ) {
+        const fallbackTs = Math.min(Math.max(Date.now(), startTs!), endTs!);
+        const fallbackRow = map.get(fallbackTs) ?? { ts: fallbackTs };
+        if (fallbackRow.poly_up == null && polymarket?.prob_up != null) {
+          fallbackRow.poly_up = polymarket.prob_up;
+        }
+        if (fallbackRow.poly_down == null && polymarket?.prob_down != null) {
+          fallbackRow.poly_down = polymarket.prob_down;
+        }
+        map.set(fallbackTs, fallbackRow);
+      }
+    }
+
     return Array.from(map.values()).sort((a, b) => a.ts - b.ts);
-  }, [up, down, modelUp, modelDown, haveWindow, startTs, endTs]);
+  }, [up, down, modelUp, modelDown, polymarket, haveWindow, startTs, endTs]);
 
   const lastUp = up[up.length - 1]?.v ?? polymarket?.prob_up ?? null;
   const lastDown = down[down.length - 1]?.v ?? polymarket?.prob_down ?? null;
   const lastModelUp = modelUp[modelUp.length - 1]?.v ?? null;
   const lastModelDown = modelDown[modelDown.length - 1]?.v ?? null;
+  const lastPolyTs = up[up.length - 1]?.t ?? down[down.length - 1]?.t ?? null;
   const nowTs = Date.now();
 
   // Scope markers to the current window
@@ -117,6 +153,11 @@ export default function PriceChart() {
             value={lastModelDown}
             dashed
           />
+          {lastPolyTs && (
+            <span className="text-slate-500">
+              last update {fmtLocalHMS(lastPolyTs)}
+            </span>
+          )}
         </div>
       </div>
 
@@ -179,7 +220,7 @@ export default function PriceChart() {
                 strokeOpacity={0.9}
                 ifOverflow="extendDomain"
                 label={{
-                  value: `TP ${tpTarget.toFixed(4)}`,
+                  value: `Take Profit ${tpTarget.toFixed(4)}`,
                   position: "right",
                   fill: TP_LINE,
                   fontSize: 10,
@@ -407,4 +448,18 @@ function MarkerHint({
 
 function formatTick(ts: number): string {
   return fmtLocalHM(ts);
+}
+
+function firstWindowValue(
+  series: { t: string; v: number }[],
+  startTs: number,
+  endTs: number,
+): number | null {
+  for (const p of series) {
+    const ts = toTs(p.t);
+    if (ts == null) continue;
+    if (ts < startTs || ts > endTs) continue;
+    return p.v;
+  }
+  return null;
 }

@@ -66,29 +66,41 @@ export default function AnimationCoordinator() {
           const palette =
             f.kind === "win"
               ? {
-                  bg: "bg-emerald-500/20",
-                  border: "border-emerald-400/40",
-                  text: "text-emerald-200",
+                  bg: "bg-emerald-950/92",
+                  border: "border-emerald-300/70",
+                  text: "text-emerald-50",
+                  accent: "text-emerald-200",
+                  glow: "shadow-[0_0_32px_rgba(52,211,153,0.30)]",
                 }
               : f.kind === "loss"
                 ? {
-                    bg: "bg-rose-500/20",
-                    border: "border-rose-400/40",
-                    text: "text-rose-200",
+                    bg: "bg-rose-950/92",
+                    border: "border-rose-300/70",
+                    text: "text-rose-50",
+                    accent: "text-rose-200",
+                    glow: "shadow-[0_0_32px_rgba(251,113,133,0.28)]",
                   }
                 : {
                     bg:
                       f.direction === "DOWN"
-                        ? "bg-rose-500/20"
-                        : "bg-emerald-500/20",
+                        ? "bg-rose-950/92"
+                        : "bg-emerald-950/92",
                     border:
                       f.direction === "DOWN"
-                        ? "border-rose-400/40"
-                        : "border-emerald-400/40",
+                        ? "border-rose-300/70"
+                        : "border-emerald-300/70",
                     text:
+                      f.direction === "DOWN"
+                        ? "text-rose-50"
+                        : "text-emerald-50",
+                    accent:
                       f.direction === "DOWN"
                         ? "text-rose-200"
                         : "text-emerald-200",
+                    glow:
+                      f.direction === "DOWN"
+                        ? "shadow-[0_0_28px_rgba(251,113,133,0.22)]"
+                        : "shadow-[0_0_28px_rgba(52,211,153,0.22)]",
                   };
           const title =
             f.kind === "entry"
@@ -103,15 +115,17 @@ export default function AnimationCoordinator() {
               animate={{ opacity: 1, x: 0, scale: 1 }}
               exit={{ opacity: 0, x: 40, scale: 0.96 }}
               transition={{ duration: 0.4, ease: "easeOut" }}
-              className={`card ${palette.bg} ${palette.border} ${palette.text} px-4 py-3 min-w-[200px] shadow-2xl`}
+              className={`card ${palette.bg} ${palette.border} ${palette.text} ${palette.glow} px-5 py-4 min-w-[260px] backdrop-blur-md ring-1 ring-black/30 shadow-2xl`}
             >
-              <div className="text-[10px] uppercase tracking-widest opacity-70">
+              <div className={`text-[11px] uppercase tracking-[0.22em] ${palette.accent} opacity-85`}>
                 {f.kind === "entry" ? "position" : "realized"}
               </div>
               <div className="flex items-baseline justify-between mt-0.5">
-                <span className="font-semibold">{title}</span>
+                <span className="text-base font-semibold">{title}</span>
                 {f.amount != null && (
-                  <span className="font-mono">{fmtMoney(f.amount)}</span>
+                  <span className={`font-mono text-xl font-semibold ${palette.accent}`}>
+                    {fmtMoney(f.amount)}
+                  </span>
                 )}
               </div>
             </motion.div>

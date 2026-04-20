@@ -1,5 +1,5 @@
 import { useDash } from "../lib/store";
-import { fmtRatio } from "../lib/format";
+import { fmtProb, fmtRatio } from "../lib/format";
 import type { EdgeRatio, WindowZone } from "../lib/types";
 
 export default function EdgeRatioPanel() {
@@ -7,28 +7,21 @@ export default function EdgeRatioPanel() {
   const edgeDown = useDash((s) => s.edgeDown);
   const window = useDash((s) => s.window);
   const zone: WindowZone = window?.zone ?? "unknown";
-  const blockReason =
-    zone === "blocked_first"
-      ? "settling · first 5m"
-      : zone === "blocked_last"
-        ? "closing · last 2m"
-        : zone === "expired"
-          ? "expired"
-          : null;
+  const blocked = zone === "blocked_first" || zone === "blocked_last";
 
   return (
-    <div className="card p-4 h-full flex flex-col overflow-hidden">
-      <div className="flex items-baseline justify-between mb-2">
-        <h2 className="card-header">Edge ratio · entry check</h2>
-        {blockReason && (
-          <span className="chip chip-warn text-[10px] font-mono">
-            entries blocked · {blockReason}
+    <div className="card px-3 pt-2 pb-1.5 self-start flex flex-col justify-start overflow-hidden">
+      <div className="flex items-baseline justify-between mb-1">
+        <h2 className="card-header">Edge Ratio</h2>
+        {blocked && (
+          <span className="chip chip-warn text-[8px] px-1.5 py-0 font-mono leading-tight">
+            blocked
           </span>
         )}
       </div>
-      <div className="grid grid-cols-1 gap-2 flex-1 min-h-0">
-        <EdgeRow edge={edgeUp} blockReason={blockReason} />
-        <EdgeRow edge={edgeDown} blockReason={blockReason} />
+      <div className="grid grid-cols-1 gap-1 content-start auto-rows-min">
+        <EdgeRow edge={edgeUp} blocked={blocked} />
+        <EdgeRow edge={edgeDown} blocked={blocked} />
       </div>
     </div>
   );
@@ -36,23 +29,21 @@ export default function EdgeRatioPanel() {
 
 function EdgeRow({
   edge,
-  blockReason,
+  blocked,
 }: {
   edge: EdgeRatio | null;
-  blockReason: string | null;
+  blocked: boolean;
 }) {
   if (!edge) {
     return (
-      <div className="border border-ink-800 rounded-lg p-3 text-slate-500 text-sm">
-        Waiting for probabilities…
+      <div className="border border-ink-800 rounded-lg px-2 py-1.5 text-slate-500 text-xs">
+        Waiting for probabilities...
       </div>
     );
   }
 
   const hasEdge = edge.has_edge === true;
-  const isBlocked = blockReason != null;
-  const sideColor =
-    edge.side === "UP" ? "text-emerald-300" : "text-rose-300";
+  const sideColor = edge.side === "UP" ? "text-emerald-300" : "text-rose-300";
 
   const max = Math.max(edge.current_ratio ?? 0, edge.required_ratio ?? 0, 1.5);
   const curW =
@@ -60,66 +51,67 @@ function EdgeRow({
   const reqW =
     edge.required_ratio != null ? (edge.required_ratio / max) * 100 : 0;
 
-  // Top-line status: blocked > edge math
   let chipClass: string;
   let chipText: string;
-  if (isBlocked) {
+  if (blocked) {
     chipClass = "chip-warn";
-    chipText = hasEdge ? "edge ✓ · blocked" : "blocked";
+    chipText = hasEdge ? "edge+hold" : "hold";
   } else if (edge.has_edge == null) {
     chipClass = "chip-mute";
-    chipText = "—";
+    chipText = "--";
   } else if (hasEdge) {
     chipClass = "chip-up";
-    chipText = "edge ✓";
+    chipText = "edge";
   } else {
     chipClass = "chip-down";
-    chipText = "no edge";
+    chipText = "none";
   }
 
-  // The bar color should also reflect the effective entry-eligibility, not just math.
-  const barColor = isBlocked
+  const barColor = blocked
     ? "bg-amber-500/50"
     : hasEdge
       ? "bg-emerald-500/60"
       : "bg-rose-500/50";
 
+  const probLine = `m ${fmtProb(edge.model_prob)}  p ${fmtProb(edge.market_prob)}  r ${fmtProb(edge.required_prob)}`;
+
   return (
-    <div className="rounded-lg border border-ink-800 bg-ink-900/40 p-3">
-      <div className="flex items-center justify-between mb-1.5">
-        <div className="flex items-baseline gap-2">
+    <div className="rounded-lg border border-ink-800 bg-ink-900/40 px-2 py-1.5">
+      <div className="flex items-center justify-between mb-0.5">
+        <div className="flex items-baseline gap-1.5">
           <span className={`font-semibold tracking-wide ${sideColor}`}>
             {edge.side}
           </span>
-          <span className="text-[10px] uppercase tracking-widest text-slate-500">
-            model / market
+          <span className="text-[8px] uppercase tracking-widest text-slate-500">
+            ratios + probs
           </span>
         </div>
-        <span className={`chip ${chipClass} font-mono`}>{chipText}</span>
+        <span className={`chip ${chipClass} text-[8px] px-1.5 py-0 font-mono leading-tight`}>
+          {chipText}
+        </span>
       </div>
 
-      <div className="grid grid-cols-3 gap-2 mb-2">
-        <Mini
-          label="current"
+      <div className="flex items-baseline justify-between gap-2 mb-0.5 font-mono">
+        <InlineMetric
+          label="cur r"
           value={fmtRatio(edge.current_ratio)}
           hi
           positive={hasEdge}
         />
-        <Mini label="required" value={fmtRatio(edge.required_ratio)} />
-        <Mini
-          label="margin"
+        <InlineMetric label="req r" value={fmtRatio(edge.required_ratio)} />
+        <InlineMetric
+          label="dr"
           value={
             edge.margin != null
-              ? (edge.margin >= 0 ? "+" : "−") +
-                Math.abs(edge.margin).toFixed(3)
-              : "—"
+              ? `${edge.margin >= 0 ? "+" : "-"}${Math.abs(edge.margin).toFixed(3)}`
+              : "--"
           }
           hi
           positive={hasEdge}
         />
       </div>
 
-      <div className="relative h-2 bg-ink-800 rounded">
+      <div className="relative h-1.5 bg-ink-800 rounded">
         <div
           className={`absolute top-0 left-0 h-full rounded ${barColor} transition-[width] duration-500`}
           style={{ width: `${Math.min(100, curW)}%` }}
@@ -129,11 +121,15 @@ function EdgeRow({
           style={{ left: `calc(${Math.min(100, reqW)}% - 1px)` }}
         />
       </div>
+
+      <div className="mt-0.5 text-[8px] text-slate-500 font-mono leading-tight truncate">
+        {probLine}
+      </div>
     </div>
   );
 }
 
-function Mini({
+function InlineMetric({
   label,
   value,
   hi,
@@ -150,9 +146,9 @@ function Mini({
       : "text-rose-300"
     : "text-slate-100";
   return (
-    <div>
-      <div className="stat-label text-[9px]">{label}</div>
-      <div className={`font-mono text-sm ${c}`}>{value}</div>
+    <div className="flex items-baseline gap-1 min-w-0">
+      <span className="stat-label text-[7px] leading-tight shrink-0">{label}</span>
+      <span className={`text-[11px] leading-tight ${c}`}>{value}</span>
     </div>
   );
 }

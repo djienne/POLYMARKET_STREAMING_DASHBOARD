@@ -19,7 +19,7 @@ from ..models import (
     TimingInfo,
 )
 
-MAX_MODEL_POINTS = 400
+MAX_MODEL_POINTS = 1000
 
 log = logging.getLogger(__name__)
 

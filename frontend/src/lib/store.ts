@@ -74,6 +74,7 @@ const CLOSE_EVENTS = new Set([
   "WIN_EXPIRY",
   "LOSS_EXPIRY",
   "STOP_LOSS",
+  "UNRESOLVED_RESTART",
 ]);
 
 export const useDash = create<DashState>((set, get) => ({
@@ -142,14 +143,12 @@ export const useDash = create<DashState>((set, get) => ({
     }),
 
   applyEnvelope: (env) => {
-    const t = env.type;
-    const d = env.data as any;
-    switch (t) {
+    switch (env.type) {
       case "bootstrap":
-        get().applyBootstrap(d as BootstrapPayload);
+        get().applyBootstrap(env.data);
         break;
       case "terminal.update": {
-        const incoming = d as TerminalSnapshot;
+        const incoming = env.data;
         const prev = get().terminal;
         const polymarket =
           incoming.polymarket?.prob_up != null
@@ -167,9 +166,9 @@ export const useDash = create<DashState>((set, get) => ({
         break;
       }
       case "orderbook.update": {
-        const prices = d.prices as PolymarketPrices | null;
-        const incomingUp = (d.series_up ?? null) as PricePoint[] | null;
-        const incomingDown = (d.series_down ?? null) as PricePoint[] | null;
+        const prices = env.data.prices;
+        const incomingUp = env.data.series_up ?? null;
+        const incomingDown = env.data.series_down ?? null;
         set((st) => ({
           terminal:
             st.terminal && prices
@@ -182,8 +181,8 @@ export const useDash = create<DashState>((set, get) => ({
         break;
       }
       case "model.update": {
-        const incomingUp = (d.series_up ?? null) as PricePoint[] | null;
-        const incomingDown = (d.series_down ?? null) as PricePoint[] | null;
+        const incomingUp = env.data.series_up ?? null;
+        const incomingDown = env.data.series_down ?? null;
         set((st) => ({
           modelUp: incomingUp ?? st.modelUp,
           modelDown: incomingDown ?? st.modelDown,
@@ -192,14 +191,14 @@ export const useDash = create<DashState>((set, get) => ({
       }
       case "instance.update":
         set({
-          instance: d.instance,
-          position: d.position,
-          equity: d.equity,
-          equitySeries: d.equity_series ?? get().equitySeries,
+          instance: env.data.instance,
+          position: env.data.position,
+          equity: env.data.equity,
+          equitySeries: env.data.equity_series ?? get().equitySeries,
         });
         break;
       case "window.tick": {
-        const win = d as WindowState;
+        const win = env.data;
         const bounds = windowBoundsFromSlug(win.slug);
         set((st) => {
           const patch = ensureSlug(st, win.slug ?? null);
@@ -214,17 +213,17 @@ export const useDash = create<DashState>((set, get) => ({
       }
       case "liveness.update":
       case "liveness.tick":
-        set({ liveness: d as LivenessInfo });
+        set({ liveness: env.data });
         break;
       case "leaderboard.update":
-        set({ leaderboard: d.top });
+        set({ leaderboard: env.data.top });
         break;
       case "calibration.start":
       case "calibration.end":
-        set({ calibration: d as CalibrationStatus });
+        set({ calibration: env.data });
         break;
       case "trade.append":
-        handleTrade(d as TradeEvent, get, set);
+        handleTrade(env.data, get, set);
         break;
       default:
         break;
@@ -341,6 +340,11 @@ function handleTrade(
   const st = get();
   const trades = [ev, ...st.trades].slice(0, 200);
   const flashQueue = [...st.flashQueue];
+  const position = nextPositionState(st, ev);
+  const marketContext = nextMarketContext(st, ev);
+  const chartContext = nextEntryChartContext(st, ev);
+  const activeSlug =
+    marketContext.terminal?.market?.slug ?? st.terminal?.market?.slug;
   const eKind = classifyEvent(ev.event);
   if (eKind) {
     flashQueue.push({
@@ -362,8 +366,7 @@ function handleTrade(
           : null;
   let markers = st.markers;
   if (markerKind) {
-    const slug = st.terminal?.market?.slug;
-    if (!slug || !ev.market_id || ev.market_id === slug) {
+    if (!activeSlug || !ev.market_id || ev.market_id === activeSlug) {
       markers = [
         ...markers,
         {
@@ -378,7 +381,15 @@ function handleTrade(
   }
 
   const liveEquity = nextLiveEquity(st, ev);
-  set({ trades, flashQueue, markers, ...liveEquity });
+  set({
+    trades,
+    flashQueue,
+    markers,
+    position,
+    ...marketContext,
+    ...chartContext,
+    ...liveEquity,
+  });
 }
 
 function classifyEvent(
@@ -414,4 +425,114 @@ function nextLiveEquity(
       : [...st.equitySeries, { t: ev.timestamp, v: nextEquity }];
 
   return { equity, equitySeries };
+}
+
+function nextPositionState(st: DashState, ev: TradeEvent): PositionState {
+  if (
+    ev.event === "ENTRY" &&
+    ev.entry_price != null &&
+    ev.shares != null &&
+    (ev.direction === "UP" || ev.direction === "DOWN")
+  ) {
+    const tpPct = st.instance?.params?.tp_pct ?? null;
+    const slPct = st.instance?.params?.sl_pct ?? null;
+    const tpTarget =
+      tpPct != null ? clampProb(ev.entry_price * (1 + tpPct)) : null;
+    const slTarget =
+      slPct != null && slPct > 0
+        ? clampProb(ev.entry_price * (1 - slPct))
+        : null;
+    return {
+      ...st.position,
+      open: {
+        direction: ev.direction,
+        entry_price: ev.entry_price,
+        shares: ev.shares,
+        tp_target: tpTarget,
+        sl_target: slTarget,
+        entered_at: ev.timestamp,
+        market_id: ev.market_id ?? null,
+        notional: ev.entry_price * ev.shares,
+      },
+    };
+  }
+
+  if (CLOSE_EVENTS.has(ev.event)) {
+    return {
+      ...st.position,
+      open: null,
+      last_exit_at: ev.timestamp,
+    };
+  }
+
+  return st.position;
+}
+
+function nextMarketContext(
+  st: DashState,
+  ev: TradeEvent,
+): Partial<DashState> {
+  if (ev.event !== "ENTRY" || !ev.market_id) return {};
+  const currentSlug = st.terminal?.market?.slug ?? st.window?.slug ?? null;
+  if (currentSlug === ev.market_id) return {};
+
+  const bounds = windowBoundsFromSlug(ev.market_id);
+  return {
+    terminal: st.terminal
+      ? {
+          ...st.terminal,
+          market: { ...st.terminal.market, slug: ev.market_id },
+        }
+      : st.terminal,
+    window: st.window ? { ...st.window, slug: ev.market_id } : st.window,
+    windowStartIso: bounds?.startIso ?? st.windowStartIso,
+    windowEndIso: bounds?.endIso ?? st.windowEndIso,
+  };
+}
+
+function clampProb(v: number): number {
+  return Math.max(0, Math.min(1, v));
+}
+
+function nextEntryChartContext(
+  st: DashState,
+  ev: TradeEvent,
+): Partial<DashState> {
+  if (
+    ev.event !== "ENTRY" ||
+    ev.timestamp == null ||
+    ev.model_prob == null ||
+    (ev.direction !== "UP" && ev.direction !== "DOWN")
+  ) {
+    return {};
+  }
+
+  const modelProb = clampProb(ev.model_prob);
+  const modelPatch =
+    ev.direction === "UP"
+      ? {
+          modelUp: appendPoint(st.modelUp, ev.timestamp, modelProb),
+          modelDown: appendPoint(st.modelDown, ev.timestamp, clampProb(1 - modelProb)),
+        }
+      : {
+          modelUp: appendPoint(st.modelUp, ev.timestamp, clampProb(1 - modelProb)),
+          modelDown: appendPoint(st.modelDown, ev.timestamp, modelProb),
+        };
+
+  return modelPatch;
+}
+
+function appendPoint(
+  series: PricePoint[],
+  t: string,
+  v: number,
+): PricePoint[] {
+  const next = [...series];
+  const last = next[next.length - 1];
+  if (last && last.t === t) {
+    next[next.length - 1] = { t, v };
+    return next;
+  }
+  next.push({ t, v });
+  return next;
 }

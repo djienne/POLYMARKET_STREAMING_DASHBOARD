@@ -56,3 +56,23 @@ def test_tail_scoped_by_instance(tmp_path: Path):
     assert len(t.recent(773)) == 1
     assert len(t.recent(100)) == 1
     assert t.recent(999) == []
+
+
+def test_realized_history_keeps_full_close_history(tmp_path: Path):
+    p = tmp_path / "trades.csv"
+    rows = "".join(_row(773, "TP_FILLED", "1.00") for _ in range(205))
+    p.write_text(HEADER + rows)
+    t = TradesTail(path_fn=lambda: p)
+    t.seed()
+    assert len(t.recent(773, 300)) == 200
+    assert len(t.realized_history(773)) == 205
+
+
+def test_realized_history_includes_unresolved_restart(tmp_path: Path):
+    p = tmp_path / "trades.csv"
+    p.write_text(HEADER + _row(773, "UNRESOLVED_RESTART"))
+    t = TradesTail(path_fn=lambda: p)
+    t.seed()
+    history = t.realized_history(773)
+    assert len(history) == 1
+    assert history[0].event == "UNRESOLVED_RESTART"

@@ -15,7 +15,13 @@ def equity_curve(trade_pnls: Iterable[float], starting_capital: float = 1000.0) 
     return curve
 
 
-CLOSE_EVENTS = {"TP_FILLED", "WIN_EXPIRY", "LOSS_EXPIRY", "STOP_LOSS"}
+CLOSE_EVENTS = {
+    "TP_FILLED",
+    "WIN_EXPIRY",
+    "LOSS_EXPIRY",
+    "STOP_LOSS",
+    "UNRESOLVED_RESTART",
+}
 
 
 def equity_timeseries(events, starting_capital: float = 1000.0) -> list[dict]:

@@ -34,8 +34,8 @@ class Settings(BaseSettings):
 
     polymarket_gamma_url: str = "https://gamma-api.polymarket.com"
     polymarket_clob_url: str = "https://clob.polymarket.com"
-    # ~2s cadence for live UP/DOWN price updates
-    polymarket_poll_interval_seconds: float = 2.0
+    # 1s cadence is still comfortably below Polymarket's documented /book limit.
+    polymarket_poll_interval_seconds: float = 1.0
     polymarket_request_timeout_seconds: float = 6.0
 
     log_level: str = "INFO"

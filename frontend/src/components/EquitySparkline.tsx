@@ -25,6 +25,7 @@ export default function EquitySparkline() {
   }, [series]);
 
   const last = data[data.length - 1]?.v ?? start;
+  const closedTrades = Math.max(data.length - 1, 0);
   const up = last >= start;
   const color = up ? "#34d399" : "#fb7185";
 
@@ -54,7 +55,7 @@ export default function EquitySparkline() {
             ${last.toFixed(2)}
           </div>
           <div className="text-[10px] text-slate-500 font-mono">
-            {data.length} closed trades
+            {closedTrades} closed trades
           </div>
         </div>
       </div>

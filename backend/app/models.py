@@ -166,6 +166,7 @@ class LivenessInfo(BaseModel):
     lock_exists: bool
     terminal_age_s: Optional[float] = None
     last_terminal_ts: Optional[str] = None
+    cpu_pct: Optional[float] = None
 
 
 class SharedConfig(BaseModel):

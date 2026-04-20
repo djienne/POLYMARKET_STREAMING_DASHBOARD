@@ -14,7 +14,14 @@ from ..models import TradeEvent
 
 log = logging.getLogger(__name__)
 
-MAX_PER_INSTANCE = 200
+MAX_RECENT_PER_INSTANCE = 200
+REALIZED_EVENTS = {
+    "TP_FILLED",
+    "WIN_EXPIRY",
+    "LOSS_EXPIRY",
+    "STOP_LOSS",
+    "UNRESOLVED_RESTART",
+}
 
 
 def _to_float(v: str) -> Optional[float]:
@@ -61,7 +68,8 @@ class TradesTail:
         self._path_fn = path_fn
         self._offset: int = 0
         self._header: Optional[list[str]] = None
-        self._per_instance: dict[int, Deque[TradeEvent]] = {}
+        self._recent_per_instance: dict[int, Deque[TradeEvent]] = {}
+        self._realized_per_instance: dict[int, list[TradeEvent]] = {}
         self._last_size: int = 0
 
     @property
@@ -69,10 +77,18 @@ class TradesTail:
         return self._path_fn()
 
     def _push(self, event: TradeEvent) -> None:
-        dq = self._per_instance.setdefault(event.instance_id, deque(maxlen=MAX_PER_INSTANCE))
+        dq = self._recent_per_instance.setdefault(
+            event.instance_id,
+            deque(maxlen=MAX_RECENT_PER_INSTANCE),
+        )
         dq.append(event)
+        if event.event in REALIZED_EVENTS and (
+            event.capital is not None or event.pnl is not None
+        ):
+            history = self._realized_per_instance.setdefault(event.instance_id, [])
+            history.append(event)
 
-    def seed(self, per_instance_limit: int = MAX_PER_INSTANCE) -> list[TradeEvent]:
+    def seed(self, per_instance_limit: int = MAX_RECENT_PER_INSTANCE) -> list[TradeEvent]:
         """Read entire file once, populate per-instance buffers, advance offset to EOF."""
         p = self.path
         if not p.exists():
@@ -102,7 +118,8 @@ class TradesTail:
             # Truncation/rotation — re-seed
             log.info("trades.csv truncated; re-seeding")
             self._offset = 0
-            self._per_instance.clear()
+            self._recent_per_instance.clear()
+            self._realized_per_instance.clear()
             return self.seed()
         if size == self._last_size:
             return []
@@ -137,7 +154,7 @@ class TradesTail:
         return new_events
 
     def recent(self, instance_id: int, n: int = 50) -> list[TradeEvent]:
-        dq = self._per_instance.get(instance_id)
+        dq = self._recent_per_instance.get(instance_id)
         if not dq:
             return []
         items = list(dq)
@@ -145,10 +162,10 @@ class TradesTail:
         return items[:n]
 
     def chronological(self, instance_id: int) -> list[TradeEvent]:
-        dq = self._per_instance.get(instance_id)
-        if not dq:
-            return []
-        return list(dq)
+        return self.realized_history(instance_id)
+
+    def realized_history(self, instance_id: int) -> list[TradeEvent]:
+        return list(self._realized_per_instance.get(instance_id, []))
 
 
 async def run_trades_loop(tail: "TradesTail", stop: asyncio.Event) -> None:

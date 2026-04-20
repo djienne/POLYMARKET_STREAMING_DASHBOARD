@@ -146,7 +146,7 @@ class Hub:
         pnls = self.state.trade_pnls(instance_id)
         equity = equity_curve(pnls, starting_capital=starting_capital)
         equity_series = equity_timeseries(
-            self.trades.chronological(instance_id), starting_capital=starting_capital
+            self.trades.realized_history(instance_id), starting_capital=starting_capital
         )
         return instance, position, equity, equity_series
 

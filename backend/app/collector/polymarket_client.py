@@ -22,7 +22,7 @@ from ..models import PolymarketPrices
 
 log = logging.getLogger(__name__)
 
-MAX_POINTS = 400
+MAX_POINTS = 1000
 
 
 def _best_bid_ask(book: dict) -> tuple[Optional[float], Optional[float]]:
@@ -40,6 +40,7 @@ class PolymarketClient:
         self._client: Optional[httpx.AsyncClient] = None
 
         self._cur_slug: Optional[str] = None
+        self._history_seeded_slug: Optional[str] = None
         self._up_token: Optional[str] = None
         self._down_token: Optional[str] = None
         self._token_lookup_failures = 0
@@ -87,6 +88,36 @@ class PolymarketClient:
     def series(self, side: str) -> list[dict]:
         dq = self._series_up if side == "UP" else self._series_down
         return [{"t": t, "v": v} for (t, v) in dq]
+
+    @staticmethod
+    def _window_bounds(slug: str) -> Optional[tuple[int, int]]:
+        import re
+        m = re.search(r"btc-updown-15m-(\d+)", slug)
+        if not m:
+            return None
+        start = int(m.group(1))
+        return start, start + 900
+
+    @staticmethod
+    def _first_ts(dq: Deque[tuple[str, float]]) -> Optional[int]:
+        if not dq:
+            return None
+        try:
+            return int(datetime.fromisoformat(dq[0][0]).timestamp())
+        except (ValueError, TypeError):
+            return None
+
+    @staticmethod
+    def _merge_history(
+        dq: Deque[tuple[str, float]],
+        history: list[tuple[str, float]],
+    ) -> None:
+        merged = {t: v for t, v in history}
+        for t, v in dq:
+            merged[t] = v
+        dq.clear()
+        for t, v in sorted(merged.items()):
+            dq.append((t, v))
 
     async def _resolve_tokens(self, slug: str) -> bool:
         """Gamma API → extract UP/DOWN token_ids for this slug. Returns True if resolved."""
@@ -162,6 +193,81 @@ class PolymarketClient:
             log.debug("clob book fetch failed: %s", e)
             return None
 
+    async def _fetch_prices_history(
+        self,
+        token: str,
+        start_ts: int,
+        end_ts: int,
+    ) -> Optional[list[tuple[str, float]]]:
+        client = await self._ensure_client()
+        url = f"{settings.polymarket_clob_url}/prices-history"
+        try:
+            r = await client.get(
+                url,
+                params={
+                    "market": token,
+                    "startTs": start_ts,
+                    "endTs": end_ts,
+                    "fidelity": 1,
+                },
+            )
+            r.raise_for_status()
+            data = r.json()
+        except (httpx.HTTPError, ValueError) as e:
+            log.warning("polymarket prices-history fetch failed for %s: %s", token[:8], e)
+            return None
+
+        points: list[tuple[str, float]] = []
+        for row in data.get("history", []):
+            try:
+                ts = int(float(row["t"]))
+                price = float(row["p"])
+            except (KeyError, TypeError, ValueError):
+                continue
+            iso = datetime.fromtimestamp(ts, tz=timezone.utc).isoformat()
+            points.append((iso, price))
+        return points
+
+    async def _maybe_backfill_history(self, slug: str) -> bool:
+        if self._history_seeded_slug == slug:
+            return False
+        bounds = self._window_bounds(slug)
+        if bounds is None or self._up_token is None or self._down_token is None:
+            return False
+
+        start_ts, end_ts = bounds
+        now_ts = int(datetime.now(timezone.utc).timestamp())
+        if now_ts <= start_ts + 15:
+            return False
+
+        up_first = self._first_ts(self._series_up)
+        down_first = self._first_ts(self._series_down)
+        if (
+            up_first is not None and up_first <= start_ts + 5 and
+            down_first is not None and down_first <= start_ts + 5
+        ):
+            self._history_seeded_slug = slug
+            return False
+
+        history_end = min(now_ts, end_ts)
+        up_history, down_history = await asyncio.gather(
+            self._fetch_prices_history(self._up_token, start_ts, history_end),
+            self._fetch_prices_history(self._down_token, start_ts, history_end),
+        )
+        if up_history is None or down_history is None:
+            return False
+
+        self._merge_history(self._series_up, up_history)
+        self._merge_history(self._series_down, down_history)
+        self._history_seeded_slug = slug
+        log.info(
+            "polymarket_client: backfilled %s window history (UP=%d DOWN=%d)",
+            slug,
+            len(up_history),
+            len(down_history),
+        )
+        return bool(up_history or down_history)
+
     async def poll(self) -> bool:
         slug = self._slug_fn()
         if not slug:
@@ -169,6 +275,7 @@ class PolymarketClient:
         if slug != self._cur_slug:
             # New market — reset
             self._cur_slug = slug
+            self._history_seeded_slug = None
             self._up_token = None
             self._down_token = None
             self._series_up.clear()
@@ -180,15 +287,16 @@ class PolymarketClient:
             if not await self._resolve_tokens(slug):
                 return False
 
+        changed = await self._maybe_backfill_history(slug)
+
         up_book, down_book = await asyncio.gather(
             self._fetch_book(self._up_token),  # type: ignore[arg-type]
             self._fetch_book(self._down_token),  # type: ignore[arg-type]
         )
         if up_book is None and down_book is None:
-            return False
+            return changed
 
         ts = datetime.now(timezone.utc).isoformat()
-        changed = False
         if up_book is not None:
             b, a = _best_bid_ask(up_book)
             self._up_bid, self._up_ask = b, a

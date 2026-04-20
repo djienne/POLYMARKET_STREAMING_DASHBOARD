@@ -19,7 +19,7 @@ from ..events.bus import bus
 
 log = logging.getLogger(__name__)
 
-MAX_POINTS = 400
+MAX_POINTS = 1000
 
 # With `docker logs -t`, every line is prefixed with an RFC3339Nano UTC timestamp:
 #   2026-04-20T17:28:43.123456789Z grid_trader: Tick ...  Model: UP=15.9% DOWN=83.9%  |  ...
@@ -58,6 +58,7 @@ class DockerLogTail:
         self._model_up: Deque[tuple[str, float]] = deque(maxlen=MAX_POINTS)
         self._model_down: Deque[tuple[str, float]] = deque(maxlen=MAX_POINTS)
         self._cur_slug: Optional[str] = None
+        self._history_seeded_slug: Optional[str] = None
         self._seen: set[str] = set()
         self._last_up: Optional[float] = None
         self._last_down: Optional[float] = None
@@ -78,9 +79,28 @@ class DockerLogTail:
     def reset_for_slug(self, slug: Optional[str]) -> None:
         if slug and slug != self._cur_slug:
             self._cur_slug = slug
+            self._history_seeded_slug = None
             self._model_up.clear()
             self._model_down.clear()
             self._seen.clear()
+
+    @staticmethod
+    def _window_start(slug: Optional[str]) -> Optional[int]:
+        if not slug:
+            return None
+        m = SLUG_RE.search(slug)
+        if not m:
+            return None
+        return int(m.group(1))
+
+    @staticmethod
+    def _first_ts(dq: Deque[tuple[str, float]]) -> Optional[int]:
+        if not dq:
+            return None
+        try:
+            return int(datetime.fromisoformat(dq[0][0]).timestamp())
+        except (TypeError, ValueError):
+            return None
 
     def _parse_line(self, line: str) -> bool:
         m_slug = SLUG_RE.search(line)
@@ -117,6 +137,26 @@ class DockerLogTail:
                 cur = None
             if cur:
                 self.reset_for_slug(cur)
+        changed = False
+        if self._cur_slug and self._history_seeded_slug != self._cur_slug:
+            start_ts = self._window_start(self._cur_slug)
+            first_up = self._first_ts(self._model_up)
+            first_down = self._first_ts(self._model_down)
+            have_window_start = (
+                start_ts is not None
+                and first_up is not None and first_up <= start_ts + 5
+                and first_down is not None and first_down <= start_ts + 5
+            )
+            if not have_window_start and start_ts is not None:
+                now = int(datetime.now(timezone.utc).timestamp())
+                backfill_changed = await self._read_logs(max(since_seconds, now - start_ts + 1))
+                changed = changed or backfill_changed
+            self._history_seeded_slug = self._cur_slug
+
+        recent_changed = await self._read_logs(since_seconds)
+        return changed or recent_changed
+
+    async def _read_logs(self, since_seconds: float) -> bool:
         cmd = [
             "docker", "logs",
             "-t",  # prepend RFC3339Nano UTC timestamp to every line

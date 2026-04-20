@@ -14,7 +14,7 @@ from ..models import PolymarketPrices
 
 log = logging.getLogger(__name__)
 
-MAX_POINTS = 400  # ~15 min at 2s cadence ≈ 450 points; 400 keeps memory bounded
+MAX_POINTS = 1000  # enough for a full 15-min window at 1s cadence with headroom
 
 
 def _f(v) -> Optional[float]:

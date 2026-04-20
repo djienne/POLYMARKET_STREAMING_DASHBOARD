@@ -40,6 +40,10 @@ async def lifespan(app: FastAPI):
     hub.terminal.read_if_changed()
     hub.orderbook.seed()  # populate UP/DOWN price history
     hub.trades.seed()  # populate per-instance buffers from existing trades.csv
+    try:
+        await hub.polymarket.poll()
+    except Exception:
+        log.exception("polymarket seed failed")
     # Seed docker-log tail with the last 20 minutes of ticks so the price chart paints immediately
     try:
         await hub.docker_log.poll(since_seconds=1200)

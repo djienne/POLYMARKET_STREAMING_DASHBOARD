@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 import asyncio
+import ctypes
 import logging
+import os
 import time
 from pathlib import Path
 from typing import Optional
@@ -11,6 +13,86 @@ from ..events.bus import bus
 from ..models import LivenessInfo
 
 log = logging.getLogger(__name__)
+
+
+class _FileTime(ctypes.Structure):
+    _fields_ = [
+        ("dwLowDateTime", ctypes.c_ulong),
+        ("dwHighDateTime", ctypes.c_ulong),
+    ]
+
+
+def _filetime_to_int(ft: _FileTime) -> int:
+    return (ft.dwHighDateTime << 32) | ft.dwLowDateTime
+
+
+def _read_windows_cpu_times() -> Optional[tuple[int, int]]:
+    idle = _FileTime()
+    kernel = _FileTime()
+    user = _FileTime()
+    try:
+        ok = ctypes.windll.kernel32.GetSystemTimes(  # type: ignore[attr-defined]
+            ctypes.byref(idle),
+            ctypes.byref(kernel),
+            ctypes.byref(user),
+        )
+    except Exception:
+        return None
+    if ok == 0:
+        return None
+    idle_i = _filetime_to_int(idle)
+    total_i = _filetime_to_int(kernel) + _filetime_to_int(user)
+    return idle_i, total_i
+
+
+def _read_linux_cpu_times() -> Optional[tuple[int, int]]:
+    try:
+        with open("/proc/stat", "r", encoding="utf-8") as f:
+            line = f.readline()
+    except OSError:
+        return None
+    parts = line.split()
+    if len(parts) < 5 or parts[0] != "cpu":
+        return None
+    values = [int(v) for v in parts[1:]]
+    idle = values[3] + (values[4] if len(values) > 4 else 0)
+    total = sum(values)
+    return idle, total
+
+
+def _read_cpu_times() -> Optional[tuple[int, int]]:
+    if os.name == "nt":
+        return _read_windows_cpu_times()
+    if os.name == "posix":
+        return _read_linux_cpu_times()
+    return None
+
+
+class CpuSampler:
+    def __init__(self) -> None:
+        self._last: Optional[tuple[int, int]] = None
+        self._last_pct: Optional[float] = None
+
+    def sample(self) -> Optional[float]:
+        cur = _read_cpu_times()
+        if cur is None:
+            return self._last_pct
+        if self._last is None:
+            self._last = cur
+            return self._last_pct
+        prev_idle, prev_total = self._last
+        idle, total = cur
+        self._last = cur
+        delta_total = total - prev_total
+        delta_idle = idle - prev_idle
+        if delta_total <= 0:
+            return self._last_pct
+        pct = max(0.0, min(100.0, (1.0 - (delta_idle / delta_total)) * 100.0))
+        self._last_pct = pct
+        return pct
+
+
+_cpu_sampler = CpuSampler()
 
 
 def _mtime(path: Path) -> Optional[float]:
@@ -32,6 +114,7 @@ def current_liveness() -> LivenessInfo:
         bot_live=lock_exists and fresh,
         lock_exists=lock_exists,
         terminal_age_s=age,
+        cpu_pct=_cpu_sampler.sample(),
     )
 
 

@@ -1,6 +1,7 @@
 import { useDash } from "../lib/store";
 import ModeBadge from "./ModeBadge";
 import CalibrationStatus from "./CalibrationStatus";
+import CpuStatus from "./CpuStatus";
 
 export default function TopStrip() {
   const mode = useDash((s) => s.mode);
@@ -30,7 +31,10 @@ export default function TopStrip() {
         <ModeBadge mode={mode} />
 
         <div className="flex-1" />
-        <CalibrationStatus />
+        <div className="flex items-center gap-2">
+          <CalibrationStatus />
+          <CpuStatus />
+        </div>
       </div>
     </header>
   );

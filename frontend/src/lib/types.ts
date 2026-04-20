@@ -165,6 +165,7 @@ export interface LivenessInfo {
   lock_exists: boolean;
   terminal_age_s: number | null;
   last_terminal_ts: string | null;
+  cpu_pct?: number | null;
 }
 
 export interface SharedConfig {
@@ -215,7 +216,55 @@ export interface BootstrapPayload {
   equity_series: PricePoint[];
 }
 
-export interface WsEnvelope<T = unknown> {
+export interface WsEnvelopeBase<TType extends string, TData> {
+  type: TType;
+  id: string;
+  server_time: string;
+  data: TData;
+}
+
+export interface OrderbookUpdateData {
+  prices: PolymarketPrices | null;
+  series_up?: PricePoint[] | null;
+  series_down?: PricePoint[] | null;
+}
+
+export interface ModelUpdateData {
+  series_up?: PricePoint[] | null;
+  series_down?: PricePoint[] | null;
+}
+
+export interface InstanceUpdateData {
+  instance: InstanceStats | null;
+  position: PositionState;
+  equity: number[];
+  equity_series?: PricePoint[];
+}
+
+export interface LeaderboardUpdateData {
+  top: LeaderboardRow[];
+}
+
+export interface PongData {
+  t: number;
+}
+
+export type WsEnvelope =
+  | WsEnvelopeBase<"bootstrap", BootstrapPayload>
+  | WsEnvelopeBase<"terminal.update", TerminalSnapshot>
+  | WsEnvelopeBase<"orderbook.update", OrderbookUpdateData>
+  | WsEnvelopeBase<"model.update", ModelUpdateData>
+  | WsEnvelopeBase<"instance.update", InstanceUpdateData>
+  | WsEnvelopeBase<"window.tick", WindowState>
+  | WsEnvelopeBase<"liveness.update", LivenessInfo>
+  | WsEnvelopeBase<"liveness.tick", LivenessInfo>
+  | WsEnvelopeBase<"leaderboard.update", LeaderboardUpdateData>
+  | WsEnvelopeBase<"calibration.start", CalibrationStatus>
+  | WsEnvelopeBase<"calibration.end", CalibrationStatus>
+  | WsEnvelopeBase<"trade.append", TradeEvent>
+  | WsEnvelopeBase<"pong", PongData>;
+
+export interface LegacyWsEnvelope<T = unknown> {
   type: string;
   id: string;
   server_time: string;
