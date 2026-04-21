@@ -92,3 +92,18 @@ export function fmtLocalFull(ts: number | string | Date | null | undefined): str
     hour12: false,
   });
 }
+
+const PARIS_DATE_FMT = new Intl.DateTimeFormat("en-CA", {
+  timeZone: TZ,
+  year: "numeric",
+  month: "2-digit",
+  day: "2-digit",
+});
+
+// YYYY-MM-DD key in Europe/Paris — used to group trades into the local calendar
+// day regardless of DST. Returns empty string for invalid input.
+export function parisDateKey(ts: number | string | Date | null | undefined): string {
+  const d = _toDate(ts);
+  if (!d) return "";
+  return PARIS_DATE_FMT.format(d);
+}

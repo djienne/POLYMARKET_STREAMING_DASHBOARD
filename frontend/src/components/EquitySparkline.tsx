@@ -1,4 +1,4 @@
-import { useMemo } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
   Area,
   AreaChart,
@@ -10,19 +10,37 @@ import {
 import { useDash } from "../lib/store";
 import { fmtLocalDate, fmtLocalFull, fmtLocalHM } from "../lib/format";
 
+const ZOOM_ROTATE_MS = 60_000;
+const ZOOM_4D_MS = 4 * 86_400_000;
+
 export default function EquitySparkline() {
   const series = useDash((s) => s.equitySeries);
   const start = useDash((s) => s.instance?.starting_capital ?? 1000);
 
+  const [mode, setMode] = useState<"all" | "4d">("all");
+  useEffect(() => {
+    const id = setInterval(
+      () => setMode((m) => (m === "all" ? "4d" : "all")),
+      ZOOM_ROTATE_MS,
+    );
+    return () => clearInterval(id);
+  }, []);
+
   const data = useMemo(() => {
-    return series
+    const full = series
       .map((p) => {
         const ts = new Date(p.t).getTime();
         return Number.isFinite(ts) ? { ts, v: p.v } : null;
       })
       .filter((x): x is { ts: number; v: number } => x != null)
       .sort((a, b) => a.ts - b.ts);
-  }, [series]);
+    if (mode === "4d") {
+      const cutoff = Date.now() - ZOOM_4D_MS;
+      const zoomed = full.filter((p) => p.ts >= cutoff);
+      if (zoomed.length >= 2) return zoomed;
+    }
+    return full;
+  }, [series, mode]);
 
   const last = data[data.length - 1]?.v ?? start;
   const closedTrades = Math.max(data.length - 1, 0);
@@ -80,7 +98,8 @@ export default function EquitySparkline() {
               minTickGap={80}
             />
             <YAxis
-              domain={["dataMin - 20", "dataMax + 20"]}
+              domain={[1000, "dataMax + 20"]}
+              allowDataOverflow
               tick={{ fill: "#64748b", fontSize: 10 }}
               stroke="#475569"
               width={48}

@@ -1,10 +1,97 @@
+import { useMemo } from "react";
 import { useDash } from "../lib/store";
-import { fmtMoney, fmtPct } from "../lib/format";
+import { fmtLocalDate, fmtMoney, fmtPct, parisDateKey } from "../lib/format";
+import { CLOSE_EVENTS } from "../lib/trade-derive";
+
+const WIN_EVENTS = new Set(["TP_FILLED", "WIN_EXPIRY"]);
+const LOSS_EVENTS = new Set(["STOP_LOSS", "LOSS_EXPIRY"]);
 
 export default function InstanceStatsCard() {
   const inst = useDash((s) => s.instance);
   const shared = useDash((s) => s.sharedConfig);
+  const trades = useDash((s) => s.trades);
+  const equitySeries = useDash((s) => s.equitySeries);
   const params = inst?.params;
+
+  const { firstTs, daysLive, cagrDisplay, cagrPositive } = useMemo(() => {
+    const candidates: number[] = [];
+    if (equitySeries.length > 0) {
+      const t = new Date(equitySeries[0].t).getTime();
+      if (Number.isFinite(t)) candidates.push(t);
+    }
+    if (trades.length > 0) {
+      const t = new Date(trades[trades.length - 1].timestamp).getTime();
+      if (Number.isFinite(t)) candidates.push(t);
+    }
+    const first = candidates.length > 0 ? Math.min(...candidates) : null;
+    if (first == null || !inst) {
+      return { firstTs: null, daysLive: null, cagrDisplay: "—", cagrPositive: true };
+    }
+    const days = Math.max(0, (Date.now() - first) / 86_400_000);
+    const start = inst.starting_capital;
+    const capital = inst.capital;
+    if (days < 1 || start <= 0 || !Number.isFinite(capital) || capital <= 0) {
+      return { firstTs: first, daysLive: days, cagrDisplay: "—", cagrPositive: true };
+    }
+    const years = days / 365;
+    const totalReturn = capital / start;
+    const cagr = Math.pow(totalReturn, 1 / years) - 1;
+    if (!Number.isFinite(cagr)) {
+      return { firstTs: first, daysLive: days, cagrDisplay: "—", cagrPositive: true };
+    }
+    const pct = cagr * 100;
+    const display =
+      pct > 1000 ? ">1000%" : pct < -1000 ? "<-1000%" : fmtPct(pct, 1);
+    return {
+      firstTs: first,
+      daysLive: days,
+      cagrDisplay: display,
+      cagrPositive: pct >= 0,
+    };
+  }, [trades, equitySeries, inst]);
+
+  const today = useMemo(() => {
+    const empty = { pnl: 0, pnlPct: null as number | null, entries: 0, wins: 0, losses: 0, closed: 0 };
+    if (trades.length === 0) return empty;
+    const todayKey = parisDateKey(Date.now());
+    let pnl = 0;
+    let entries = 0;
+    let wins = 0;
+    let losses = 0;
+    let closed = 0;
+    for (const t of trades) {
+      if (parisDateKey(t.timestamp) !== todayKey) continue;
+      if (t.event === "ENTRY") entries += 1;
+      if (CLOSE_EVENTS.has(t.event)) {
+        if (t.pnl != null) pnl += t.pnl;
+        if (WIN_EVENTS.has(t.event)) wins += 1;
+        else if (LOSS_EVENTS.has(t.event)) losses += 1;
+        closed += 1;
+      }
+    }
+    // Portfolio-level %: PnL $ relative to capital at the last equity point
+    // strictly before today's local midnight. Fall back to starting_capital,
+    // then to (current capital − today's PnL) if equity history is sparse.
+    let baseCapital: number | null = null;
+    if (equitySeries.length > 0) {
+      for (let i = equitySeries.length - 1; i >= 0; i--) {
+        const p = equitySeries[i];
+        if (parisDateKey(p.t) !== todayKey) {
+          baseCapital = p.v;
+          break;
+        }
+      }
+    }
+    if (baseCapital == null && inst) {
+      const fallback = inst.capital - pnl;
+      baseCapital = fallback > 0 ? fallback : inst.starting_capital;
+    }
+    const pnlPct =
+      baseCapital && baseCapital > 0 && closed > 0
+        ? (pnl / baseCapital) * 100
+        : null;
+    return { pnl, pnlPct, entries, wins, losses, closed };
+  }, [trades, equitySeries, inst]);
 
   if (!inst) {
     return <div className="card p-5 text-slate-500 text-sm">Loading…</div>;
@@ -42,6 +129,54 @@ export default function InstanceStatsCard() {
       label: "Trades",
       value: String(inst.trades_count),
       sub: "",
+    },
+    {
+      label: "Days",
+      value: daysLive != null ? `${Math.floor(daysLive)}d` : "—",
+      sub: firstTs != null ? `since ${fmtLocalDate(firstTs)}` : "",
+    },
+    {
+      label: "CAGR",
+      value: cagrDisplay,
+      sub: "annualized",
+      color:
+        cagrDisplay === "—"
+          ? "text-slate-100"
+          : cagrPositive
+            ? "text-emerald-300"
+            : "text-rose-300",
+    },
+  ];
+
+  const todayClosed = today.wins + today.losses;
+  const todayWinRate = todayClosed > 0 ? (today.wins / todayClosed) * 100 : null;
+  const todayTiles = [
+    {
+      label: "PnL $",
+      value: today.closed > 0 ? fmtMoney(today.pnl) : "—",
+      color: today.pnl > 0 ? "text-emerald-300" : today.pnl < 0 ? "text-rose-300" : "text-slate-100",
+    },
+    {
+      label: "PnL %",
+      value: today.pnlPct != null ? fmtPct(today.pnlPct) : "—",
+      color:
+        today.pnlPct == null
+          ? "text-slate-100"
+          : today.pnlPct > 0
+            ? "text-emerald-300"
+            : today.pnlPct < 0
+              ? "text-rose-300"
+              : "text-slate-100",
+    },
+    {
+      label: "Positions",
+      value: String(today.entries),
+      sub: today.closed > 0 ? `${today.closed} closed` : "",
+    },
+    {
+      label: "Win rate",
+      value: todayWinRate != null ? `${todayWinRate.toFixed(0)}%` : "—",
+      sub: todayClosed > 0 ? `${today.wins}W / ${today.losses}L` : "",
     },
   ];
 
@@ -122,20 +257,41 @@ export default function InstanceStatsCard() {
         )}
       </div>
 
-      <div className="grid grid-cols-6 gap-2 mb-2">
+      <div className="grid grid-cols-8 gap-2 mb-2">
         {tiles.map((t) => (
           <div key={t.label}>
             <div className="stat-label">{t.label}</div>
-            <div className={`font-mono text-lg ${t.color ?? "text-slate-100"}`}>
+            <div className={`font-mono text-base ${t.color ?? "text-slate-100"}`}>
               {t.value}
             </div>
             {t.sub && (
-              <div className="text-[11px] text-slate-500 font-mono">
+              <div className="text-[10px] text-slate-500 font-mono">
                 {t.sub}
               </div>
             )}
           </div>
         ))}
+      </div>
+
+      <div className="mb-2">
+        <div className="stat-label mb-1">Today</div>
+        <div className="grid grid-cols-4 gap-2">
+          {todayTiles.map((t) => (
+            <div key={t.label}>
+              <div className="text-[10px] uppercase tracking-wider text-slate-500">
+                {t.label}
+              </div>
+              <div className={`font-mono text-base ${t.color ?? "text-slate-100"}`}>
+                {t.value}
+              </div>
+              {t.sub && (
+                <div className="text-[10px] text-slate-500 font-mono">
+                  {t.sub}
+                </div>
+              )}
+            </div>
+          ))}
+        </div>
       </div>
 
       {params && (

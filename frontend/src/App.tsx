@@ -53,43 +53,45 @@ export default function App() {
       <div className="stream-frame flex flex-col">
         <TopStrip />
 
-        <main className="flex-1 min-h-0 px-4 py-3 grid grid-rows-[minmax(0,26fr)_minmax(0,26fr)_minmax(0,15fr)_minmax(0,19fr)_minmax(0,14fr)] gap-3">
-          {/* Row 1: probabilities + edge */}
-          <section className="grid grid-cols-[minmax(0,2.35fr)_minmax(320px,0.9fr)] gap-3 min-h-0">
-            <div className="min-h-0">
-              <ProbabilityPanel />
-            </div>
-            <div className="min-h-0 self-start">
-              <EdgeRatioPanel />
-            </div>
-          </section>
+        <main className="flex-1 min-h-0 px-4 py-3 grid grid-cols-[minmax(0,1fr)_320px] gap-3">
+          <div className="min-h-0 grid grid-rows-[minmax(0,26fr)_minmax(0,26fr)_minmax(0,15fr)_minmax(0,19fr)] gap-3">
+            {/* Row 1: probabilities + edge */}
+            <section className="grid grid-cols-[minmax(0,2.35fr)_minmax(320px,0.9fr)] gap-3 min-h-0">
+              <div className="min-h-0">
+                <ProbabilityPanel />
+              </div>
+              <div className="min-h-0 self-start">
+                <EdgeRatioPanel />
+              </div>
+            </section>
 
-          {/* Row 2: live UP/DOWN price chart (full width) */}
-          <section className="min-h-0">
-            <PriceChart />
-          </section>
+            {/* Row 2: live UP/DOWN price chart (full width) */}
+            <section className="min-h-0">
+              <PriceChart />
+            </section>
 
-          {/* Row 3: market / window / position */}
-          <section className="grid grid-cols-3 gap-3 min-h-0">
-            <MarketInfoCard />
-            <WindowTimer />
-            <PositionCard />
-          </section>
+            {/* Row 3: market / window / position */}
+            <section className="grid grid-cols-3 gap-3 min-h-0">
+              <MarketInfoCard />
+              <WindowTimer />
+              <PositionCard />
+            </section>
 
-          {/* Row 4: instance stats + equity */}
-          <section className="grid grid-cols-3 gap-3 min-h-0">
-            <div className="col-span-2 min-h-0">
-              <InstanceStatsCard />
-            </div>
-            <div className="min-h-0">
-              <EquitySparkline />
-            </div>
-          </section>
+            {/* Row 4: instance stats + equity */}
+            <section className="grid grid-cols-3 gap-3 min-h-0">
+              <div className="col-span-2 min-h-0">
+                <InstanceStatsCard />
+              </div>
+              <div className="min-h-0">
+                <EquitySparkline />
+              </div>
+            </section>
+          </div>
 
-          {/* Row 5: trade feed (full width) */}
-          <section className="min-h-0">
+          {/* Right rail: tall trade feed */}
+          <div className="min-h-0">
             <TradeFeed />
-          </section>
+          </div>
         </main>
 
         <Footer />
