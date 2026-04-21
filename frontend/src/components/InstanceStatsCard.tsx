@@ -132,7 +132,7 @@ export default function InstanceStatsCard() {
     },
     {
       label: "Days",
-      value: daysLive != null ? `${Math.floor(daysLive)}d` : "—",
+      value: daysLive != null ? `${daysLive.toFixed(1)}d` : "—",
       sub: firstTs != null ? `since ${fmtLocalDate(firstTs)}` : "",
     },
     {
@@ -231,8 +231,8 @@ export default function InstanceStatsCard() {
     : [];
 
   return (
-    <div className="card p-4 h-full flex flex-col overflow-hidden">
-      <div className="mb-2">
+    <div className="card p-3 h-full flex flex-col overflow-hidden">
+      <div className="mb-1.5">
         <h2 className="card-header">Performance</h2>
         {orderSizePct != null && (
           <div className="text-[10px] text-slate-500 font-mono mt-0.5">
@@ -257,6 +257,7 @@ export default function InstanceStatsCard() {
         )}
       </div>
 
+      <SectionHeader label="All time" tone="slate" />
       <div className="grid grid-cols-8 gap-2 mb-2">
         {tiles.map((t) => (
           <div key={t.label}>
@@ -273,25 +274,23 @@ export default function InstanceStatsCard() {
         ))}
       </div>
 
-      <div className="mb-2">
-        <div className="stat-label mb-1">Today</div>
-        <div className="grid grid-cols-4 gap-2">
-          {todayTiles.map((t) => (
-            <div key={t.label}>
-              <div className="text-[10px] uppercase tracking-wider text-slate-500">
-                {t.label}
-              </div>
-              <div className={`font-mono text-base ${t.color ?? "text-slate-100"}`}>
-                {t.value}
-              </div>
-              {t.sub && (
-                <div className="text-[10px] text-slate-500 font-mono">
-                  {t.sub}
-                </div>
-              )}
+      <SectionHeader label="Today" tone="cyan" />
+      <div className="grid grid-cols-4 gap-2 mb-2">
+        {todayTiles.map((t) => (
+          <div key={t.label}>
+            <div className="text-[10px] uppercase tracking-wider text-slate-500">
+              {t.label}
             </div>
-          ))}
-        </div>
+            <div className={`font-mono text-base ${t.color ?? "text-slate-100"}`}>
+              {t.value}
+            </div>
+            {t.sub && (
+              <div className="text-[10px] text-slate-500 font-mono">
+                {t.sub}
+              </div>
+            )}
+          </div>
+        ))}
       </div>
 
       {params && (
@@ -301,6 +300,21 @@ export default function InstanceStatsCard() {
           ))}
         </div>
       )}
+    </div>
+  );
+}
+
+function SectionHeader({ label, tone }: { label: string; tone: "slate" | "cyan" }) {
+  const textCls = tone === "cyan" ? "text-cyan-200" : "text-slate-300";
+  const dotCls = tone === "cyan" ? "bg-cyan-300" : "bg-slate-400";
+  const lineCls = tone === "cyan" ? "bg-cyan-500/30" : "bg-ink-700";
+  return (
+    <div className="flex items-center gap-2 mb-1.5 mt-0.5">
+      <span className={`inline-block w-1.5 h-1.5 rounded-full ${dotCls}`} />
+      <span className={`font-semibold uppercase tracking-[0.18em] text-[11px] ${textCls}`}>
+        {label}
+      </span>
+      <div className={`flex-1 h-px ${lineCls}`} />
     </div>
   );
 }
@@ -317,7 +331,7 @@ function ParamChip({ tile }: { tile: ParamTile }) {
   return (
     <div
       title={tile.hint}
-      className={`rounded-md border border-ink-800 bg-ink-900/40 px-2 py-1.5 ${
+      className={`rounded-md border border-ink-800 bg-ink-900/40 px-2 py-1 ${
         tile.muted ? "opacity-60" : ""
       }`}
     >
@@ -330,7 +344,7 @@ function ParamChip({ tile }: { tile: ParamTile }) {
         </span>
       </div>
       <div
-        className={`font-mono text-base ${
+        className={`font-mono text-sm ${
           tile.muted ? "text-slate-500" : "text-slate-100"
         }`}
       >

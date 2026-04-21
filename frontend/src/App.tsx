@@ -54,7 +54,7 @@ export default function App() {
         <TopStrip />
 
         <main className="flex-1 min-h-0 px-4 py-3 grid grid-cols-[minmax(0,1fr)_320px] gap-3">
-          <div className="min-h-0 grid grid-rows-[minmax(0,26fr)_minmax(0,26fr)_minmax(0,15fr)_minmax(0,19fr)] gap-3">
+          <div className="min-h-0 grid grid-rows-[minmax(0,22fr)_minmax(0,22fr)_minmax(0,15fr)_minmax(0,27fr)] gap-3">
             {/* Row 1: probabilities + edge */}
             <section className="grid grid-cols-[minmax(0,2.35fr)_minmax(320px,0.9fr)] gap-3 min-h-0">
               <div className="min-h-0">

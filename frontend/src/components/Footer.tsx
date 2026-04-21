@@ -1,10 +1,24 @@
+import { useEffect, useState } from "react";
 import { useDash } from "../lib/store";
+import { parisTzAbbrev, parisUtcOffset } from "../lib/format";
 
 export default function Footer() {
   const ws = useDash((s) => s.wsStatus);
   const live = useDash((s) => s.liveness);
   const cal = useDash((s) => s.calibration);
   const t = cal.last_timing;
+
+  // Re-evaluate the UTC offset once per hour so DST transitions are picked up
+  // without churning the render loop.
+  const [tzOffset, setTzOffset] = useState(() => parisUtcOffset());
+  const [tzAbbrev, setTzAbbrev] = useState(() => parisTzAbbrev());
+  useEffect(() => {
+    const id = setInterval(() => {
+      setTzOffset(parisUtcOffset());
+      setTzAbbrev(parisTzAbbrev());
+    }, 3_600_000);
+    return () => clearInterval(id);
+  }, []);
 
   return (
     <footer className="border-t border-ink-800 bg-ink-950/90 backdrop-blur">
@@ -24,7 +38,11 @@ export default function Footer() {
           className="text-slate-500 uppercase tracking-[0.18em]"
           title="All timestamps shown in Europe/Paris (same as Amsterdam — CET in winter, CEST in summer)"
         >
-          tz <span className="text-slate-300">Europe/Paris · CET/CEST</span>
+          tz{" "}
+          <span className="text-slate-300">
+            Europe/Paris · {tzOffset}
+            {tzAbbrev && ` (${tzAbbrev})`}
+          </span>
         </span>
         <span className="text-slate-500 ml-auto">
           {t?.surface_fit_s != null && (
