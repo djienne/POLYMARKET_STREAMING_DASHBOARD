@@ -65,12 +65,12 @@ export default function ProbabilityPanel() {
       <div className="flex items-baseline justify-between mb-3 gap-3">
         <div className="flex items-baseline gap-2 flex-wrap">
           <h2 className="card-header">Model probabilities vs market</h2>
-          <span className="text-[10px] text-slate-500 inline-flex items-center gap-1.5">
+          <span className="text-xs text-slate-400 inline-flex items-center gap-2">
             <span>model fit from</span>
             <img
               src="/deribit.svg"
               alt="Deribit"
-              className="h-4 w-auto"
+              className="h-7 w-auto"
             />
             <span>BTC options</span>
           </span>

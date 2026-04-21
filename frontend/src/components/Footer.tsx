@@ -44,6 +44,7 @@ export default function Footer() {
         </span>
         <DevEntryTrigger />
         <DevWinTrigger />
+        <DevLossTrigger />
       </div>
     </footer>
   );
@@ -70,6 +71,31 @@ function DevWinTrigger() {
               kind: "win",
               direction: "UP",
               amount: 4.2,
+              at: Date.now(),
+            },
+          ],
+        }));
+      }}
+      className="w-1.5 h-1.5 rounded-full bg-slate-500 opacity-10 hover:opacity-70 transition-opacity"
+    />
+  );
+}
+
+function DevLossTrigger() {
+  return (
+    <button
+      type="button"
+      title="trigger loss"
+      aria-label="trigger loss"
+      onClick={() => {
+        useDash.setState((st) => ({
+          flashQueue: [
+            ...st.flashQueue,
+            {
+              id: `dev-loss-${Date.now()}`,
+              kind: "loss",
+              direction: "DOWN",
+              amount: -3.7,
               at: Date.now(),
             },
           ],

@@ -16,10 +16,24 @@ const ENTRY_GIFS = [
   { src: "/caprio-finger.gif",  loopMs: 1870 }, // DiCaprio pointing: 28 frames × ~67 ms
 ] as const;
 
-function pickEntryGif(id: string): (typeof ENTRY_GIFS)[number] {
+// Losing-trade pool — same pattern, deterministic by flash id.
+const LOSS_GIFS = [
+  { src: "/gosling-dive.gif", loopMs: 2000 }, // Gosling: 20 frames × 100 ms
+  { src: "/escobar.gif",      loopMs: 1360 }, // sad Pablo: 34 frames × 40 ms
+] as const;
+
+function _hashIdx(id: string, mod: number): number {
   let h = 0;
   for (let i = 0; i < id.length; i++) h = ((h << 5) - h + id.charCodeAt(i)) | 0;
-  return ENTRY_GIFS[Math.abs(h) % ENTRY_GIFS.length];
+  return Math.abs(h) % mod;
+}
+
+function pickEntryGif(id: string): (typeof ENTRY_GIFS)[number] {
+  return ENTRY_GIFS[_hashIdx(id, ENTRY_GIFS.length)];
+}
+
+function pickLossGif(id: string): (typeof LOSS_GIFS)[number] {
+  return LOSS_GIFS[_hashIdx(id, LOSS_GIFS.length)];
 }
 
 function dismissMsFor(loopMs: number): number {
@@ -31,6 +45,8 @@ export default function AnimationCoordinator() {
   const flashes = useDash((s) => s.flashQueue);
   const consumeFlash = useDash((s) => s.consumeFlash);
   const winFlash = flashes.find((f) => f.kind === "win");
+  const lossFlash = flashes.find((f) => f.kind === "loss");
+  const lossGif = lossFlash ? pickLossGif(lossFlash.id) : null;
   const entryFlash = flashes.find((f) => f.kind === "entry");
   const entryGif = entryFlash ? pickEntryGif(entryFlash.id) : null;
 
@@ -40,6 +56,8 @@ export default function AnimationCoordinator() {
       let ms: number;
       if (f.kind === "win") {
         ms = dismissMsFor(WIN_GIF.loopMs);
+      } else if (f.kind === "loss") {
+        ms = dismissMsFor(pickLossGif(f.id).loopMs);
       } else if (f.kind === "entry") {
         ms = dismissMsFor(pickEntryGif(f.id).loopMs);
       } else {
@@ -74,6 +92,32 @@ export default function AnimationCoordinator() {
               />
               <div className="relative -mt-4 px-4 py-1.5 rounded-full bg-ink-950/90 border border-emerald-400/60 font-mono text-emerald-200 text-lg shadow-2xl">
                 WIN {fmtMoney(winFlash.amount ?? 0)}
+              </div>
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* Losing-trade commiseration — random gif from LOSS_GIFS */}
+      <AnimatePresence>
+        {lossFlash && lossGif && (
+          <motion.div
+            key={lossFlash.id}
+            initial={{ opacity: 0, scale: 0.6, rotate: -4 }}
+            animate={{ opacity: 1, scale: 1, rotate: 0 }}
+            exit={{ opacity: 0, scale: 0.85, rotate: 3 }}
+            transition={{ duration: 0.45, ease: [0.22, 1, 0.36, 1] }}
+            className="fixed inset-0 z-[60] flex items-center justify-center pointer-events-none"
+          >
+            <div className="relative flex flex-col items-center">
+              <div className="absolute inset-0 -m-10 rounded-full bg-rose-500/20 blur-3xl" />
+              <LoopingGif
+                src={lossGif.src}
+                loopMs={lossGif.loopMs}
+                className="relative w-[26vw] max-w-[420px] min-w-[260px] rounded-2xl border-2 border-rose-400/60 shadow-[0_0_60px_rgba(251,113,133,0.55)]"
+              />
+              <div className="relative -mt-4 px-4 py-1.5 rounded-full bg-ink-950/90 border border-rose-400/60 font-mono text-rose-200 text-lg shadow-2xl">
+                LOSS {fmtMoney(lossFlash.amount ?? 0)}
               </div>
             </div>
           </motion.div>
