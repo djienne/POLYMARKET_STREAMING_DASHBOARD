@@ -167,6 +167,15 @@ class LivenessInfo(BaseModel):
     terminal_age_s: Optional[float] = None
     last_terminal_ts: Optional[str] = None
     cpu_pct: Optional[float] = None
+    # Live-trader execution location + latency to Polymarket from that side.
+    # execution_location is "local" | "vps" | "stopped" | null (unknown).
+    # polymarket_ping_ms reflects the ACTIVE side (local measures from the
+    # dashboard host; vps measures via ssh-to-VPS + curl so the number is
+    # what the VPS trader actually experiences).
+    execution_location: Optional[str] = None
+    execution_label: Optional[str] = None  # human-friendly, e.g. "VPS Tokyo"
+    polymarket_ping_ms: Optional[float] = None
+    polymarket_ping_age_s: Optional[float] = None
 
 
 class SharedConfig(BaseModel):

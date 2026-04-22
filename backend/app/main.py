@@ -16,6 +16,7 @@ from .collector.calibration_watcher import run_calibration_loop
 from .collector.docker_log_tail import run_docker_log_loop
 from .collector.leaderboard_reader import run_leaderboard_loop
 from .collector.liveness import run_liveness_loop
+from .collector.location_probe import run_location_probe_loop
 from .collector.orderbook_tail import run_orderbook_loop
 from .collector.polymarket_client import run_polymarket_loop
 from .collector.state_reader import run_state_loop
@@ -53,6 +54,7 @@ async def lifespan(app: FastAPI):
     stop = asyncio.Event()
     tasks = [
         asyncio.create_task(run_liveness_loop(stop)),
+        asyncio.create_task(run_location_probe_loop(stop)),
         asyncio.create_task(run_terminal_loop(hub.terminal, stop)),
         asyncio.create_task(run_state_loop(hub.state, stop)),
         asyncio.create_task(run_trades_loop(hub.trades, stop)),

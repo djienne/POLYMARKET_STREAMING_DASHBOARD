@@ -38,6 +38,17 @@ class Settings(BaseSettings):
     polymarket_poll_interval_seconds: float = 1.0
     polymarket_request_timeout_seconds: float = 6.0
 
+    # VPS location probe — shows latency from the currently-active live trader
+    # side. For location=vps, the probe SSHes out to measure trader→Polymarket
+    # latency (not dashboard→Polymarket). IP/host is NOT hardcoded — set
+    # VPS_HOST, VPS_USER, VPS_SSH_KEY in .env (gitignored). If VPS_HOST is
+    # empty the probe silently falls back to local-only measurement.
+    vps_host: str = ""
+    vps_user: str = "ubuntu"
+    vps_label: str = "VPS Tokyo"
+    vps_ssh_key: Path = Field(default=Path("vps_infos/lighter.pem"))
+    polymarket_probe_interval_seconds: float = 30.0
+
     log_level: str = "INFO"
 
     @staticmethod
@@ -90,6 +101,13 @@ class Settings(BaseSettings):
 
     def live_config_path(self) -> Path:
         return self.resolved_config_dir / "config_trader_live.json"
+
+    def live_location_path(self) -> Path:
+        """Marker file written by scripts/live_switch.sh — "local" | "vps" | "stopped"."""
+        return self.resolved_results_dir / ".live_location"
+
+    def resolved_vps_ssh_key(self) -> Path:
+        return self._resolve(self.vps_ssh_key)
 
 
 settings = Settings()

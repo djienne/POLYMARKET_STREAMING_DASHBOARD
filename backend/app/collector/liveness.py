@@ -11,6 +11,7 @@ from typing import Optional
 from ..config import settings
 from ..events.bus import bus
 from ..models import LivenessInfo
+from .location_probe import probe as location_probe
 
 log = logging.getLogger(__name__)
 
@@ -110,11 +111,17 @@ def current_liveness() -> LivenessInfo:
     if term_mtime is not None:
         age = max(0.0, time.time() - term_mtime)
     fresh = age is not None and age < 60.0
+    location = location_probe.read_location()
+    ping_ms, ping_age_s, label = location_probe.active_ping()
     return LivenessInfo(
         bot_live=lock_exists and fresh,
         lock_exists=lock_exists,
         terminal_age_s=age,
         cpu_pct=_cpu_sampler.sample(),
+        execution_location=location,
+        execution_label=label,
+        polymarket_ping_ms=ping_ms,
+        polymarket_ping_age_s=ping_age_s,
     )
 
 

@@ -4,6 +4,7 @@ import CalibrationStatus from "./CalibrationStatus";
 import CpuStatus from "./CpuStatus";
 import InstanceSelector from "./InstanceSelector";
 import BotStatusBanner from "./BotStatusBanner";
+import LocationChip from "./LocationChip";
 
 export default function TopStrip() {
   const mode = useDash((s) => s.mode);
@@ -45,6 +46,7 @@ export default function TopStrip() {
         <div className="flex items-center gap-2.5">
           <CalibrationStatus />
           <CpuStatus />
+          <LocationChip />
         </div>
       </div>
     </header>

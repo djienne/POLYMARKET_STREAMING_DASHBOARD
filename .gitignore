@@ -13,3 +13,7 @@ dist/
 debug.png
 Untitled.png
 *.zip
+
+# VPS access material — private keys, host-specific scripts. Must never leak.
+vps_infos/
+*.pem

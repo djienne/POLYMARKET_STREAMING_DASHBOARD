@@ -166,6 +166,10 @@ export interface LivenessInfo {
   terminal_age_s: number | null;
   last_terminal_ts: string | null;
   cpu_pct?: number | null;
+  execution_location?: "local" | "vps" | "stopped" | "unknown" | null;
+  execution_label?: string | null;
+  polymarket_ping_ms?: number | null;
+  polymarket_ping_age_s?: number | null;
 }
 
 export interface SharedConfig {
