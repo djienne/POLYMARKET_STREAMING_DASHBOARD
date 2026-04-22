@@ -11,7 +11,26 @@ export default function InstanceStatsCard() {
   const shared = useDash((s) => s.sharedConfig);
   const trades = useDash((s) => s.trades);
   const equitySeries = useDash((s) => s.equitySeries);
-  const params = inst?.params;
+  const mode = useDash((s) => s.mode);
+  // In live mode the backend can't parse the flat live-state schema into
+  // InstanceStats, so `inst.params` is null. Fall back to sharedConfig (populated
+  // from config_trader_live.json) so the aU/aD/fU/fD/tp/sl chips still render.
+  const params =
+    inst?.params ??
+    (shared.alpha_up != null &&
+    shared.alpha_down != null &&
+    shared.floor_up != null &&
+    shared.floor_down != null &&
+    shared.tp_pct != null
+      ? {
+          alpha_up: shared.alpha_up,
+          alpha_down: shared.alpha_down,
+          floor_up: shared.floor_up,
+          floor_down: shared.floor_down,
+          tp_pct: shared.tp_pct,
+          sl_pct: shared.sl_pct ?? 0,
+        }
+      : null);
 
   const { firstTs, daysLive, cagrDisplay, cagrPositive } = useMemo(() => {
     const candidates: number[] = [];
@@ -93,47 +112,61 @@ export default function InstanceStatsCard() {
     return { pnl, pnlPct, entries, wins, losses, closed };
   }, [trades, equitySeries, inst]);
 
-  if (!inst) {
-    return <div className="card p-5 text-slate-500 text-sm">Loading…</div>;
-  }
+  // Fallback "empty" instance when the backend has no state yet (fresh live run
+  // with zero trades): show zeros instead of stalling on "Loading…" forever.
+  const startingCapital =
+    inst?.starting_capital ?? shared.starting_capital ?? 0;
+  const view = inst ?? {
+    capital: startingCapital,
+    starting_capital: startingCapital,
+    total_pnl: 0,
+    total_pnl_pct: 0,
+    sharpe: 0,
+    max_drawdown: 0,
+    max_drawdown_pct: 0,
+    win_rate: 0,
+    wins: 0,
+    losses: 0,
+    trades_count: 0,
+  };
 
   const tiles = [
     {
       label: "Capital",
-      value: `$${inst.capital.toFixed(2)}`,
-      sub: `start $${inst.starting_capital.toFixed(0)}`,
+      value: `$${view.capital.toFixed(2)}`,
+      sub: `start $${view.starting_capital.toFixed(0)}`,
     },
     {
       label: "Total PnL",
-      value: fmtMoney(inst.total_pnl),
-      sub: fmtPct(inst.total_pnl_pct),
-      color: inst.total_pnl >= 0 ? "text-emerald-300" : "text-rose-300",
+      value: fmtMoney(view.total_pnl),
+      sub: fmtPct(view.total_pnl_pct),
+      color: view.total_pnl >= 0 ? "text-emerald-300" : "text-rose-300",
     },
     {
       label: "Sharpe",
-      value: inst.sharpe.toFixed(2),
-      color: inst.sharpe >= 1 ? "text-emerald-300" : "text-slate-100",
+      value: view.sharpe.toFixed(2),
+      color: view.sharpe >= 1 ? "text-emerald-300" : "text-slate-100",
     },
     {
       label: "Max DD",
-      value: `${inst.max_drawdown_pct.toFixed(2)}%`,
-      sub: `$${inst.max_drawdown.toFixed(2)}`,
+      value: `${view.max_drawdown_pct.toFixed(2)}%`,
+      sub: `$${view.max_drawdown.toFixed(2)}`,
       color: "text-amber-300",
     },
     {
       label: "Win rate",
-      value: `${inst.win_rate.toFixed(1)}%`,
-      sub: `${inst.wins}W / ${inst.losses}L`,
+      value: `${view.win_rate.toFixed(1)}%`,
+      sub: `${view.wins}W / ${view.losses}L`,
     },
     {
       label: "Trades",
-      value: String(inst.trades_count),
+      value: String(view.trades_count),
       sub: "",
     },
     {
       label: "Days",
-      value: daysLive != null ? `${daysLive.toFixed(1)}d` : "—",
-      sub: firstTs != null ? `since ${fmtLocalDate(firstTs)}` : "",
+      value: daysLive != null ? `${daysLive.toFixed(1)}d` : "0.0d",
+      sub: `started ${new Date(firstTs ?? Date.now()).toLocaleDateString("en-GB", { day: "2-digit", month: "2-digit", year: "numeric" })}`,
     },
     {
       label: "CAGR",
@@ -183,7 +216,7 @@ export default function InstanceStatsCard() {
   // Per-trade order size estimate based on current capital * order_size_pct
   const orderSizePct = shared.order_size_pct ?? null;
   const orderSizeUsd =
-    orderSizePct != null ? inst.capital * orderSizePct : null;
+    orderSizePct != null ? view.capital * orderSizePct : null;
 
   const paramTiles: ParamTile[] = params
     ? [
@@ -252,6 +285,17 @@ export default function InstanceStatsCard() {
             )}
             {shared.max_entry_price != null && (
               <span> · max entry {shared.max_entry_price.toFixed(2)}</span>
+            )}
+            {mode === "live" && (
+              <span>
+                {" · "}
+                <span
+                  className="text-amber-300/80"
+                  title="Backtested trade rate on the live parameter set (aU=2.5 aD=1.8 fU=0.45 fD=0.45 tp=0.3)"
+                >
+                  backtest ≈ 7 trades/day
+                </span>
+              </span>
             )}
           </div>
         )}

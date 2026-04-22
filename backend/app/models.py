@@ -178,6 +178,12 @@ class SharedConfig(BaseModel):
     no_trade_last_s: Optional[float] = None
     grace_period_s: Optional[float] = None
     liquidity_mode: Optional[str] = None
+    alpha_up: Optional[float] = None
+    alpha_down: Optional[float] = None
+    floor_up: Optional[float] = None
+    floor_down: Optional[float] = None
+    tp_pct: Optional[float] = None
+    sl_pct: Optional[float] = None
 
 
 class PricePoint(BaseModel):

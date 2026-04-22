@@ -15,7 +15,12 @@ const ZOOM_4D_MS = 4 * 86_400_000;
 
 export default function EquitySparkline() {
   const series = useDash((s) => s.equitySeries);
-  const start = useDash((s) => s.instance?.starting_capital ?? 1000);
+  // Prefer the live instance's starting_capital; fall back to the trader's
+  // configured starting_capital (live: 100, paper grid: 1000) so a fresh run
+  // with no trades still renders on a sensible scale.
+  const start = useDash(
+    (s) => s.instance?.starting_capital ?? s.sharedConfig.starting_capital ?? 100,
+  );
 
   const [mode, setMode] = useState<"all" | "4d">("all");
   useEffect(() => {
@@ -98,7 +103,10 @@ export default function EquitySparkline() {
               minTickGap={80}
             />
             <YAxis
-              domain={[1000, "dataMax + 20"]}
+              domain={[
+                Math.max(0, start * 0.9),
+                (dataMax: number) => Math.ceil(dataMax + Math.max(2, start * 0.02)),
+              ]}
               allowDataOverflow
               tick={{ fill: "#64748b", fontSize: 10 }}
               stroke="#475569"

@@ -24,6 +24,7 @@ export default function App() {
   const applyEnvelope = useDash((s) => s.applyEnvelope);
   const setWsStatus = useDash((s) => s.setWsStatus);
   const selected = useDash((s) => s.selectedInstanceId);
+  const windowStartIso = useDash((s) => s.windowStartIso);
 
   useEffect(() => {
     // Allow overriding the selected instance via ?instance_id=N for dev / debugging
@@ -46,6 +47,17 @@ export default function App() {
   useEffect(() => {
     wsRef.current?.selectInstance(selected);
   }, [selected]);
+
+  // Re-fetch bootstrap whenever the 15-min market window changes. The WS stream
+  // publishes model.update only when a new log line is parsed, which can leave
+  // the chart stuck at the 0.5 seed for up to a minute after window rollover
+  // (or indefinitely if WS events are dropped). Bootstrap re-scopes all series
+  // to the new window and unsticks the chart within one poll cycle.
+  useEffect(() => {
+    if (!windowStartIso) return;
+    api.bootstrap(selected).then(applyBootstrap).catch(console.error);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [windowStartIso]);
 
   return (
     <div className="min-h-screen w-full bg-ink-950 flex justify-center">

@@ -151,9 +151,43 @@ export const useDash = create<DashState>((set, get) => ({
           incoming.market?.slug
             ? incoming.market
             : { ...incoming.market, slug: prev?.market?.slug ?? incoming.market?.slug };
+        // Also extract model probabilities from the terminal snapshot and append
+        // to modelUp/modelDown. terminal.update fires on every SSVI calibration
+        // (every 2–11s), whereas `model.update` (from docker log tailing) only
+        // publishes on grid log ticks (~60s). Appending here keeps the dashed
+        // chart lines in sync with the trader's actual calibration cadence.
+        const probs = incoming.probabilities || {};
+        const up =
+          probs.avg_above ??
+          probs.mc_above ??
+          probs.ssvi_surface_above ??
+          null;
+        const down =
+          probs.avg_below ??
+          probs.mc_below ??
+          probs.ssvi_surface_below ??
+          null;
+        const ts = incoming.timestamp as string | undefined;
         set((st) => {
           const patch = ensureSlug(st, market?.slug ?? null);
-          return { ...patch, terminal: { ...incoming, polymarket, market } };
+          let modelUp = st.modelUp;
+          let modelDown = st.modelDown;
+          if (ts && (up != null || down != null)) {
+            const lastUpTs = modelUp[modelUp.length - 1]?.t;
+            const lastDownTs = modelDown[modelDown.length - 1]?.t;
+            if (up != null && ts !== lastUpTs) {
+              modelUp = [...modelUp, { t: ts, v: up }].slice(-1000);
+            }
+            if (down != null && ts !== lastDownTs) {
+              modelDown = [...modelDown, { t: ts, v: down }].slice(-1000);
+            }
+          }
+          return {
+            ...patch,
+            terminal: { ...incoming, polymarket, market },
+            modelUp,
+            modelDown,
+          };
         });
         break;
       }
@@ -177,9 +211,25 @@ export const useDash = create<DashState>((set, get) => ({
       case "model.update": {
         const incomingUp = env.data.series_up ?? null;
         const incomingDown = env.data.series_down ?? null;
+        // Merge with existing series (which may have been appended to via
+        // terminal.update for faster cadence). Dedup by timestamp; never let
+        // an incoming shorter/stale series truncate a richer local one.
+        const merge = (
+          prev: { t: string; v: number }[],
+          incoming: { t: string; v: number }[] | null,
+        ) => {
+          if (!incoming || incoming.length === 0) return prev;
+          const byTs = new Map<string, number>();
+          for (const p of prev) byTs.set(p.t, p.v);
+          for (const p of incoming) byTs.set(p.t, p.v);
+          return Array.from(byTs.entries())
+            .map(([t, v]) => ({ t, v }))
+            .sort((a, b) => a.t.localeCompare(b.t))
+            .slice(-1000);
+        };
         set((st) => ({
-          modelUp: incomingUp ?? st.modelUp,
-          modelDown: incomingDown ?? st.modelDown,
+          modelUp: merge(st.modelUp, incomingUp),
+          modelDown: merge(st.modelDown, incomingDown),
         }));
         break;
       }

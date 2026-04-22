@@ -106,6 +106,12 @@ class Hub:
             no_trade_last_s=raw.get("no_trade_last_seconds"),
             grace_period_s=raw.get("grace_period_seconds"),
             liquidity_mode=raw.get("liquidity_mode"),
+            alpha_up=raw.get("edge_alpha_up"),
+            alpha_down=raw.get("edge_alpha_down"),
+            floor_up=raw.get("edge_floor_up"),
+            floor_down=raw.get("edge_floor_down"),
+            tp_pct=raw.get("tp_percentage"),
+            sl_pct=raw.get("stop_loss_pct"),
         )
         self._shared_cfg_cache = cfg
         self._shared_cfg_mtime = mtime

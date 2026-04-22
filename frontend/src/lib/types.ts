@@ -177,6 +177,12 @@ export interface SharedConfig {
   no_trade_last_s: number | null;
   grace_period_s: number | null;
   liquidity_mode: string | null;
+  alpha_up?: number | null;
+  alpha_down?: number | null;
+  floor_up?: number | null;
+  floor_down?: number | null;
+  tp_pct?: number | null;
+  sl_pct?: number | null;
 }
 
 export interface PricePoint {
