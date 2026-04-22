@@ -62,23 +62,23 @@ export default function ProbabilityPanel() {
       {calActive && (
         <div className="absolute inset-0 pointer-events-none shimmer-bar animate-shimmer" />
       )}
-      <div className="flex items-baseline justify-between mb-3 gap-3">
-        <div className="flex items-baseline gap-2 flex-wrap">
+      <div className="flex items-baseline justify-between mb-2 gap-3">
+        <div className="flex items-baseline gap-2 flex-wrap min-w-0">
           <h2 className="card-header">Model probabilities vs market</h2>
-          <span className="text-xs text-slate-400 inline-flex items-center gap-2">
+          <span className="text-[11px] leading-tight text-slate-400 inline-flex items-center gap-1.5">
             <span>model fit from</span>
             <img
               src="/deribit.svg"
               alt="Deribit"
-              className="h-7 w-auto"
+              className="h-6 w-auto"
             />
             <span>BTC options</span>
           </span>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2 shrink-0">
           {probs?.bl_mc_divergence != null &&
             Math.abs(probs.bl_mc_divergence) > 0.1 && (
-              <span className="chip chip-warn font-mono">
+              <span className="chip chip-warn font-mono text-[10px] px-2 py-0">
                 divergence {probs.bl_mc_divergence.toFixed(3)}
               </span>
             )}
@@ -86,7 +86,7 @@ export default function ProbabilityPanel() {
         </div>
       </div>
 
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-6 flex-1 min-h-0">
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-4 flex-1 min-h-0">
         <SideColumn
           side="UP"
           rows={rows.map((r) => ({ ...r, value: r.above }))}
@@ -117,13 +117,13 @@ function SideColumn({
     side === "UP" ? "bg-emerald-400/70" : "bg-rose-400/70";
 
   return (
-    <div>
-      <div className="flex items-baseline justify-between mb-3">
+    <div className="min-h-0">
+      <div className="flex items-baseline justify-between mb-2">
         <div className="flex items-center gap-2">
           <span className={`font-semibold ${sideColor} tracking-wide`}>
             {side}
           </span>
-          <span className="text-xs text-slate-500">
+          <span className="text-[11px] text-slate-500">
             Polymarket implied
           </span>
         </div>
@@ -132,7 +132,7 @@ function SideColumn({
         </span>
       </div>
 
-      <div className="space-y-2">
+      <div className="space-y-1.5">
         {rows.map((r) => (
           <ProbRow
             key={r.label}
@@ -168,9 +168,9 @@ function ProbRow({
   const mw = marketProb != null ? Math.max(0, Math.min(1, marketProb)) * 100 : null;
   return (
     <div>
-      <div className="flex items-center justify-between text-[11px] mb-1">
-        <div className="flex items-center gap-2">
-          <span className={`${preferred ? "text-cyan-200" : "text-slate-400"}`}>
+      <div className="flex items-center justify-between text-[11px] mb-0.5 leading-tight gap-2">
+        <div className="flex items-center gap-2 min-w-0">
+          <span className={`min-w-0 ${preferred ? "text-cyan-200" : "text-slate-400"}`}>
             {label}
           </span>
           {preferred && (
@@ -182,9 +182,9 @@ function ProbRow({
             <span className="text-slate-600 text-[10px]">n/a</span>
           )}
         </div>
-        <span className="font-mono text-slate-200">{fmtProb(value)}</span>
+        <span className="font-mono text-slate-200 shrink-0">{fmtProb(value)}</span>
       </div>
-      <div className="relative h-2 bg-ink-800 rounded">
+      <div className="relative h-1.5 bg-ink-800 rounded">
         <div
           className={`absolute top-0 left-0 h-full ${sideBg} rounded transition-[width] duration-500`}
           style={{ width: `${w}%` }}
