@@ -129,6 +129,7 @@ export default function InstanceStatsCard() {
     losses: 0,
     trades_count: 0,
   };
+  const hasTrades = view.trades_count > 0;
 
   const tiles = [
     {
@@ -144,8 +145,13 @@ export default function InstanceStatsCard() {
     },
     {
       label: "Sharpe",
-      value: view.sharpe.toFixed(2),
-      color: view.sharpe >= 1 ? "text-emerald-300" : "text-slate-100",
+      value: hasTrades ? view.sharpe.toFixed(2) : "—",
+      color:
+        !hasTrades
+          ? "text-slate-400"
+          : view.sharpe >= 1
+            ? "text-emerald-300"
+            : "text-slate-100",
     },
     {
       label: "Max DD",
@@ -155,8 +161,8 @@ export default function InstanceStatsCard() {
     },
     {
       label: "Win rate",
-      value: `${view.win_rate.toFixed(1)}%`,
-      sub: `${view.wins}W / ${view.losses}L`,
+      value: hasTrades ? `${view.win_rate.toFixed(1)}%` : "—",
+      sub: hasTrades ? `${view.wins}W / ${view.losses}L` : "",
     },
     {
       label: "Trades",

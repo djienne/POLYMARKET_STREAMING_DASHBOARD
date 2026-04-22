@@ -25,15 +25,14 @@ export default function TopStrip() {
         <ModeBadge mode={mode} />
 
         {mode === "live" && (
-          <a
-            href="https://polymarket.com/@freqtradefr"
-            target="_blank"
-            rel="noopener noreferrer"
-            title="View real-money account on Polymarket"
-            className="font-mono text-[11px] tracking-widest text-amber-300/90 hover:text-amber-200 border border-amber-500/30 bg-amber-500/5 hover:bg-amber-500/10 rounded px-2 py-0.5 transition-colors"
-          >
-            @freqtradefr ↗
-          </a>
+          <div className="rounded border border-amber-500/30 bg-amber-500/5 px-2.5 py-1 leading-tight">
+            <div className="text-[9px] uppercase tracking-[0.18em] text-amber-200/60">
+              Live Account
+            </div>
+            <div className="font-mono text-[11px] text-amber-300/90">
+              https://polymarket.com/@freqtradefr
+            </div>
+          </div>
         )}
 
         <div className="flex-1" />

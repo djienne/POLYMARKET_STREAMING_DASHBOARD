@@ -50,7 +50,7 @@ export default function LeaderboardMini() {
                       Math.abs(r.total_pnl).toFixed(0)}
                   </td>
                   <td className="text-right text-slate-300">
-                    {r.sharpe.toFixed(2)}
+                    {r.trades > 0 ? r.sharpe.toFixed(2) : "—"}
                   </td>
                   <td className="text-right text-amber-300/80">
                     {r.max_drawdown_pct.toFixed(1)}%

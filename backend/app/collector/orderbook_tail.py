@@ -84,13 +84,16 @@ class OrderbookTail:
         p = self.path
         if not p.exists():
             return
-        with p.open("r", encoding="utf-8", newline="") as f:
-            reader = csv.DictReader(f)
-            self._header = reader.fieldnames
-            for row in reader:
-                self._apply_row(row)
-            self._offset = f.tell()
-        self._last_size = p.stat().st_size
+        try:
+            with p.open("r", encoding="utf-8", newline="") as f:
+                reader = csv.DictReader(f)
+                self._header = reader.fieldnames
+                for row in reader:
+                    self._apply_row(row)
+                self._offset = f.tell()
+            self._last_size = p.stat().st_size
+        except OSError:
+            return
 
     def _apply_row(self, row: dict) -> None:
         ts = row.get("timestamp", "")
@@ -139,26 +142,29 @@ class OrderbookTail:
             return False
         self._last_size = size
         changed = False
-        with p.open("r", encoding="utf-8", newline="") as f:
-            if self._header is None:
-                reader = csv.DictReader(f)
-                self._header = reader.fieldnames
+        try:
+            with p.open("r", encoding="utf-8", newline="") as f:
+                if self._header is None:
+                    reader = csv.DictReader(f)
+                    self._header = reader.fieldnames
+                    for row in reader:
+                        pass
+                    self._offset = f.tell()
+                    return False
+                f.seek(self._offset)
+                remainder = f.read()
+                if "\n" not in remainder:
+                    return False
+                last_nl = remainder.rfind("\n")
+                complete = remainder[: last_nl + 1]
+                consumed = len(complete.encode("utf-8"))
+                self._offset += consumed
+                reader = csv.DictReader(io.StringIO(complete), fieldnames=self._header)
                 for row in reader:
-                    pass
-                self._offset = f.tell()
-                return False
-            f.seek(self._offset)
-            remainder = f.read()
-            if "\n" not in remainder:
-                return False
-            last_nl = remainder.rfind("\n")
-            complete = remainder[: last_nl + 1]
-            consumed = len(complete.encode("utf-8"))
-            self._offset += consumed
-            reader = csv.DictReader(io.StringIO(complete), fieldnames=self._header)
-            for row in reader:
-                self._apply_row(row)
-                changed = True
+                    self._apply_row(row)
+                    changed = True
+        except OSError:
+            return False
         return changed
 
 

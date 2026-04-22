@@ -96,6 +96,128 @@ def position_from_raw(raw: dict) -> PositionState:
     return PositionState(open=open_pos, last_exit_at=last_exit)
 
 
+def _live_trade_pnls(raw: dict) -> list[float]:
+    pnls: list[float] = []
+    for pos in raw.get("closed_positions") or []:
+        if not _is_meaningful_live_close(pos):
+            continue
+        try:
+            pnl = pos.get("pnl")
+        except AttributeError:
+            continue
+        if isinstance(pnl, (int, float)):
+            pnls.append(float(pnl))
+    return pnls
+
+
+def _is_meaningful_live_close(pos: object) -> bool:
+    if not isinstance(pos, dict):
+        return False
+    try:
+        pnl = pos.get("pnl")
+        cost_basis = pos.get("cost_basis")
+        proceeds = pos.get("proceeds")
+    except AttributeError:
+        return False
+    if pnl not in (0, 0.0):
+        return True
+    try:
+        if cost_basis is None or proceeds is None:
+            return False
+        return float(cost_basis) != float(proceeds)
+    except (TypeError, ValueError):
+        return False
+
+
+def instance_from_live_raw(
+    instance_id: int,
+    raw: dict,
+    starting_capital: float = STARTING_CAPITAL,
+) -> Optional[InstanceStats]:
+    capital = raw.get("capital")
+    if not isinstance(capital, dict):
+        return None
+    raw_starting = capital.get("starting")
+    raw_current = capital.get("current")
+    raw_total_pnl = capital.get("total_pnl")
+    try:
+        start = float(raw_starting) if raw_starting is not None else float(starting_capital)
+    except (TypeError, ValueError):
+        start = float(starting_capital)
+    try:
+        current = float(raw_current) if raw_current is not None else start
+    except (TypeError, ValueError):
+        current = start
+    try:
+        total_pnl = float(raw_total_pnl) if raw_total_pnl is not None else (current - start)
+    except (TypeError, ValueError):
+        total_pnl = current - start
+
+    closed_positions = raw.get("closed_positions") or []
+    wins = 0
+    losses = 0
+    trades = 0
+    for pos in closed_positions:
+        if not _is_meaningful_live_close(pos):
+            continue
+        result = pos.get("result")
+        if result is None:
+            continue
+        trades += 1
+        if result in {"TP_FILLED", "WIN_EXPIRY"}:
+            wins += 1
+        elif result in {"STOP_LOSS", "LOSS_EXPIRY"}:
+            losses += 1
+
+    pnls = _live_trade_pnls(raw)
+    sharpe = _compute_sharpe(pnls)
+    mdd, mdd_pct = _compute_max_dd(pnls, start)
+    win_rate = (wins / trades * 100.0) if trades else 0.0
+
+    return InstanceStats(
+        instance_id=instance_id,
+        capital=current,
+        starting_capital=start,
+        total_pnl=total_pnl,
+        total_pnl_pct=(total_pnl / start) * 100.0 if start else 0.0,
+        sharpe=sharpe,
+        max_drawdown=mdd,
+        max_drawdown_pct=mdd_pct,
+        wins=wins,
+        losses=losses,
+        win_rate=win_rate,
+        trades_count=trades,
+    )
+
+
+def position_from_live_raw(raw: dict) -> PositionState:
+    positions = raw.get("open_positions") or []
+    if not positions:
+        return PositionState(
+            open=None,
+            last_exit_at=raw.get("last_tp_fill_time"),
+        )
+    pos = positions[0]
+    try:
+        open_pos = OpenPosition(
+            direction=pos.get("direction"),
+            entry_price=float(pos.get("entry_price", 0.0)),
+            shares=float(pos.get("shares", 0.0)),
+            tp_target=float(pos["tp_price"]) if pos.get("tp_price") is not None else None,
+            sl_target=float(pos["stop_loss_price"]) if pos.get("stop_loss_price") is not None else None,
+            entered_at=pos.get("opened_at"),
+            market_id=pos.get("market_id"),
+            notional=float(pos.get("cost_basis")) if pos.get("cost_basis") is not None else None,
+        )
+    except Exception:
+        log.exception("live position parse failed")
+        open_pos = None
+    return PositionState(
+        open=open_pos,
+        last_exit_at=raw.get("last_tp_fill_time"),
+    )
+
+
 class StateReader:
     def __init__(self, path_fn, instance_ids: Optional[list[int]] = None) -> None:
         """path_fn: callable returning Path to state file (so we can switch files based on mode)."""
@@ -124,22 +246,31 @@ class StateReader:
         return True
 
     def instance(self, instance_id: int, starting_capital: float = STARTING_CAPITAL) -> Optional[InstanceStats]:
-        raw = (self._raw.get("instances") or {}).get(str(instance_id))
-        if raw is None:
-            return None
-        return instance_from_raw(instance_id, raw, starting_capital=starting_capital)
+        instances = self._raw.get("instances")
+        if isinstance(instances, dict):
+            raw = instances.get(str(instance_id))
+            if raw is None:
+                return None
+            return instance_from_raw(instance_id, raw, starting_capital=starting_capital)
+        return instance_from_live_raw(instance_id, self._raw, starting_capital=starting_capital)
 
     def position(self, instance_id: int) -> PositionState:
-        raw = (self._raw.get("instances") or {}).get(str(instance_id))
-        if raw is None:
-            return PositionState()
-        return position_from_raw(raw)
+        instances = self._raw.get("instances")
+        if isinstance(instances, dict):
+            raw = instances.get(str(instance_id))
+            if raw is None:
+                return PositionState()
+            return position_from_raw(raw)
+        return position_from_live_raw(self._raw)
 
     def trade_pnls(self, instance_id: int) -> list[float]:
-        raw = (self._raw.get("instances") or {}).get(str(instance_id))
-        if raw is None:
-            return []
-        return [float(x) for x in raw.get("trade_pnls", []) if isinstance(x, (int, float))]
+        instances = self._raw.get("instances")
+        if isinstance(instances, dict):
+            raw = instances.get(str(instance_id))
+            if raw is None:
+                return []
+            return [float(x) for x in raw.get("trade_pnls", []) if isinstance(x, (int, float))]
+        return _live_trade_pnls(self._raw)
 
     @property
     def raw(self) -> dict:

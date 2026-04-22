@@ -20,6 +20,7 @@ import httpx
 from ..config import settings
 from ..events.bus import bus
 from ..models import PolymarketPrices
+from ..time_utils import iso_to_unix
 
 log = logging.getLogger(__name__)
 
@@ -173,10 +174,8 @@ class PolymarketClient:
     def _first_ts(dq: Deque[tuple[str, float]]) -> Optional[int]:
         if not dq:
             return None
-        try:
-            return int(datetime.fromisoformat(dq[0][0]).timestamp())
-        except (ValueError, TypeError):
-            return None
+        ts = iso_to_unix(dq[0][0])
+        return int(ts) if ts is not None else None
 
     @staticmethod
     def _merge_history(

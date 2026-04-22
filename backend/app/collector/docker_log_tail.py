@@ -16,6 +16,7 @@ from typing import Deque, Optional
 
 from ..config import settings
 from ..events.bus import bus
+from ..time_utils import iso_to_unix
 
 log = logging.getLogger(__name__)
 
@@ -97,10 +98,8 @@ class DockerLogTail:
     def _first_ts(dq: Deque[tuple[str, float]]) -> Optional[int]:
         if not dq:
             return None
-        try:
-            return int(datetime.fromisoformat(dq[0][0]).timestamp())
-        except (TypeError, ValueError):
-            return None
+        ts = iso_to_unix(dq[0][0])
+        return int(ts) if ts is not None else None
 
     def _parse_line(self, line: str) -> bool:
         m_slug = SLUG_RE.search(line)

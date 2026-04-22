@@ -11,6 +11,7 @@ from typing import Optional
 from ..config import settings
 from ..events.bus import bus
 from ..models import CalibrationStatus, TimingInfo
+from ..time_utils import parse_utc_iso
 
 log = logging.getLogger(__name__)
 
@@ -37,12 +38,10 @@ class CalibrationWatcher:
     @property
     def status(self) -> CalibrationStatus:
         if self._status.active and self._status.started_at is not None:
-            try:
-                start = datetime.fromisoformat(self._status.started_at.replace("Z", "+00:00"))
+            start = parse_utc_iso(self._status.started_at)
+            if start is not None:
                 now = datetime.now(timezone.utc)
                 self._status.elapsed_s = max(0.0, (now - start).total_seconds())
-            except ValueError:
-                pass
         return self._status
 
     async def _emit(self, topic: str) -> None:

@@ -94,16 +94,19 @@ class TradesTail:
         if not p.exists():
             return []
         new_events: list[TradeEvent] = []
-        with p.open("r", encoding="utf-8", newline="") as f:
-            reader = csv.DictReader(f)
-            self._header = reader.fieldnames
-            for row in reader:
-                ev = _row_to_event(row)
-                if ev:
-                    self._push(ev)
-                    new_events.append(ev)
-            self._offset = f.tell()
-        self._last_size = p.stat().st_size
+        try:
+            with p.open("r", encoding="utf-8", newline="") as f:
+                reader = csv.DictReader(f)
+                self._header = reader.fieldnames
+                for row in reader:
+                    ev = _row_to_event(row)
+                    if ev:
+                        self._push(ev)
+                        new_events.append(ev)
+                self._offset = f.tell()
+            self._last_size = p.stat().st_size
+        except OSError:
+            return []
         return new_events
 
     def poll(self) -> list[TradeEvent]:
@@ -126,31 +129,34 @@ class TradesTail:
         self._last_size = size
 
         new_events: list[TradeEvent] = []
-        with p.open("r", encoding="utf-8", newline="") as f:
-            if self._header is None:
-                # Need a header; read once
-                reader = csv.DictReader(f)
-                self._header = reader.fieldnames
-                # fast-forward past lines we already consumed
+        try:
+            with p.open("r", encoding="utf-8", newline="") as f:
+                if self._header is None:
+                    # Need a header; read once
+                    reader = csv.DictReader(f)
+                    self._header = reader.fieldnames
+                    # fast-forward past lines we already consumed
+                    for row in reader:
+                        pass
+                    self._offset = f.tell()
+                    return []
+                f.seek(self._offset)
+                # Only process complete lines
+                remainder = f.read()
+                if "\n" not in remainder:
+                    return []
+                last_nl = remainder.rfind("\n")
+                complete = remainder[: last_nl + 1]
+                consumed = len(complete.encode("utf-8"))
+                self._offset += consumed
+                reader = csv.DictReader(io.StringIO(complete), fieldnames=self._header)
                 for row in reader:
-                    pass
-                self._offset = f.tell()
-                return []
-            f.seek(self._offset)
-            # Only process complete lines
-            remainder = f.read()
-            if "\n" not in remainder:
-                return []
-            last_nl = remainder.rfind("\n")
-            complete = remainder[: last_nl + 1]
-            consumed = len(complete.encode("utf-8"))
-            self._offset += consumed
-            reader = csv.DictReader(io.StringIO(complete), fieldnames=self._header)
-            for row in reader:
-                ev = _row_to_event(row)
-                if ev:
-                    self._push(ev)
-                    new_events.append(ev)
+                    ev = _row_to_event(row)
+                    if ev:
+                        self._push(ev)
+                        new_events.append(ev)
+        except OSError:
+            return []
         return new_events
 
     def recent(self, instance_id: int, n: int = 50) -> list[TradeEvent]:

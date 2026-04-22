@@ -19,24 +19,29 @@ import AnimationCoordinator from "./components/anim/AnimationCoordinator";
 export default function App() {
   const wsRef = useRef<WsManager | null>(null);
   const bootstrapRequestRef = useRef(0);
+  const boundaryRefreshInFlightRef = useRef(false);
+  const lastBootstrapWindowStartRef = useRef<string | null>(null);
   const didHandleInitialSelection = useRef(false);
   const setAllInstances = useDash((s) => s.setAllInstances);
   const setSelected = useDash((s) => s.setSelected);
   const applyBootstrap = useDash((s) => s.applyBootstrap);
   const setWsStatus = useDash((s) => s.setWsStatus);
   const applyEnvelope = useDash((s) => s.applyEnvelope);
+  const tickWindow = useDash((s) => s.tickWindow);
   const selected = useDash((s) => s.selectedInstanceId);
   const windowStartIso = useDash((s) => s.windowStartIso);
+  const windowEndIso = useDash((s) => s.windowEndIso);
   const wsStatus = useDash((s) => s.wsStatus);
 
   const refreshBootstrap = (instanceId: number) => {
     const requestId = ++bootstrapRequestRef.current;
-    api.bootstrap(instanceId)
+    return api.bootstrap(instanceId)
       .then((payload) => {
         if (requestId !== bootstrapRequestRef.current) return;
         const currentSelected = useDash.getState().selectedInstanceId;
         const payloadInstanceId = payload.instance?.instance_id ?? null;
         if (payloadInstanceId != null && payloadInstanceId !== currentSelected) return;
+        lastBootstrapWindowStartRef.current = payload.window_start_iso ?? null;
         applyBootstrap(payload);
       })
       .catch(console.error);
@@ -84,9 +89,35 @@ export default function App() {
   // to the new window and unsticks the chart within one poll cycle.
   useEffect(() => {
     if (!windowStartIso) return;
+    if (windowStartIso === lastBootstrapWindowStartRef.current) return;
     refreshBootstrap(selected);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [windowStartIso]);
+
+  useEffect(() => {
+    if (!windowStartIso && !windowEndIso) return;
+    tickWindow();
+
+    const id = window.setInterval(() => {
+      tickWindow();
+
+      const endTs = windowEndIso != null ? Date.parse(windowEndIso) : NaN;
+      if (
+        !Number.isFinite(endTs) ||
+        Date.now() < endTs ||
+        boundaryRefreshInFlightRef.current
+      ) {
+        return;
+      }
+
+      boundaryRefreshInFlightRef.current = true;
+      refreshBootstrap(useDash.getState().selectedInstanceId).finally(() => {
+        boundaryRefreshInFlightRef.current = false;
+      });
+    }, 1000);
+
+    return () => window.clearInterval(id);
+  }, [windowStartIso, windowEndIso, tickWindow]);
 
   return (
     <div className="min-h-screen w-full bg-ink-950 flex justify-center">

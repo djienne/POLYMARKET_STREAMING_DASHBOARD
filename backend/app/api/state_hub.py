@@ -33,6 +33,7 @@ from ..models import (
     TerminalSnapshot,
     WindowState,
 )
+from ..time_utils import iso_to_unix
 
 
 class Hub:
@@ -118,6 +119,13 @@ class Hub:
         return cfg
 
     def starting_capital(self) -> float:
+        capital = self.state.raw.get("capital")
+        if isinstance(capital, dict):
+            live_starting = capital.get("starting")
+            try:
+                return float(live_starting)
+            except (TypeError, ValueError):
+                pass
         configured = self.shared_config().starting_capital
         if configured is None:
             return STARTING_CAPITAL
@@ -146,7 +154,7 @@ class Hub:
 
     def instance_snapshot(self, instance_id: int):
         starting_capital = self.starting_capital()
-        lb_row = self.leaderboard.row(instance_id)
+        lb_row = self.leaderboard.row(instance_id) if settings.mode == "dry_run" else None
         instance = self.state.instance(instance_id, starting_capital=starting_capital)
         instance = self._apply_leaderboard_context(instance, lb_row)
         position = self.state.position(instance_id)
@@ -224,11 +232,26 @@ class Hub:
             equity_series=equity_series,
         )
 
-    @staticmethod
-    def _edges_from(terminal: TerminalSnapshot, lb_row) -> tuple[Optional["EdgeRatio"], Optional["EdgeRatio"]]:
-        if not lb_row or not terminal.probabilities:
+    def _edges_from(self, terminal: TerminalSnapshot, lb_row) -> tuple[Optional["EdgeRatio"], Optional["EdgeRatio"]]:
+        if not terminal.probabilities:
             return None, None
-        params = lb_row.params
+        if lb_row is not None:
+            params = lb_row.params
+        else:
+            cfg = self.shared_config()
+            if (
+                cfg.alpha_up is None or
+                cfg.alpha_down is None or
+                cfg.floor_up is None or
+                cfg.floor_down is None
+            ):
+                return None, None
+            class _Params:
+                alpha_up = cfg.alpha_up
+                alpha_down = cfg.alpha_down
+                floor_up = cfg.floor_up
+                floor_down = cfg.floor_down
+            params = _Params()
         model_up = (
             terminal.probabilities.avg_above
             or terminal.probabilities.mc_above
@@ -275,9 +298,8 @@ class Hub:
         out = []
         for p in rows:
             t = p["t"] if isinstance(p, dict) else p.t
-            try:
-                ts = datetime.fromisoformat(t.replace("Z", "+00:00")).timestamp()
-            except (ValueError, AttributeError):
+            ts = iso_to_unix(t)
+            if ts is None:
                 continue
             if start <= ts <= end:
                 out.append(p)
@@ -292,9 +314,8 @@ class Hub:
         for ev in self.trades.recent(instance_id, n=200):
             if ev.market_id and ev.market_id != slug:
                 continue
-            try:
-                ts = datetime.fromisoformat(ev.timestamp.replace("Z", "+00:00")).timestamp()
-            except (ValueError, AttributeError):
+            ts = iso_to_unix(ev.timestamp)
+            if ts is None:
                 continue
             if not (start <= ts <= end):
                 continue

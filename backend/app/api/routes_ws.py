@@ -1,18 +1,12 @@
 from __future__ import annotations
 
-import asyncio
 import json
 import logging
 import time
-from typing import Optional
 
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 
-import re
-import time as _time
-
 from ..config import settings
-from ..derive.window import compute_window
 from ..envelope import envelope
 from ..events.bus import bus
 from .state_hub import get_hub
@@ -44,14 +38,16 @@ async def ws_endpoint(ws: WebSocket) -> None:
 
     async def send_instance_snapshot() -> None:
         instance, position, equity, equity_series = hub.instance_snapshot(ctx.instance_id)
-        await ctx.send("instance.update", {
-            "instance": instance.model_dump() if instance else None,
-            "position": position.model_dump(),
-            "equity": equity,
-            "equity_series": equity_series,
-        })
+        await ctx.send(
+            "instance.update",
+            {
+                "instance": instance.model_dump() if instance else None,
+                "position": position.model_dump(),
+                "equity": equity,
+                "equity_series": equity_series,
+            },
+        )
 
-    # Send initial bootstrap
     try:
         payload = hub.build_bootstrap(ctx.instance_id).model_dump()
         await ctx.send("bootstrap", payload)
@@ -60,20 +56,20 @@ async def ws_endpoint(ws: WebSocket) -> None:
 
     async def send_edge_update() -> None:
         edge_up, edge_down = hub.current_edges(ctx.instance_id)
-        await ctx.send("edge.update", {
-            "edge_up": edge_up.model_dump() if edge_up else None,
-            "edge_down": edge_down.model_dump() if edge_down else None,
-        })
+        await ctx.send(
+            "edge.update",
+            {
+                "edge_up": edge_up.model_dump() if edge_up else None,
+                "edge_down": edge_down.model_dump() if edge_down else None,
+            },
+        )
 
     async def on_event(topic: str, data) -> None:
         if ctx.closed:
             return
-        # Scope state/trade to the subscribed instance
-        if topic == "trade.append":
-            if data.get("instance_id") != ctx.instance_id:
-                return
+        if topic == "trade.append" and data.get("instance_id") != ctx.instance_id:
+            return
         if topic == "state.update":
-            # Re-send scoped instance snapshot
             await send_instance_snapshot()
             return
         if topic == "leaderboard.update":
@@ -86,32 +82,6 @@ async def ws_endpoint(ws: WebSocket) -> None:
             await send_edge_update()
 
     unsub = bus.subscribe("*", on_event)
-
-    stop = asyncio.Event()
-
-    async def window_ticker() -> None:
-        while not stop.is_set():
-            snap = hub.terminal.latest
-            slug = snap.market.slug if (snap and snap.market) else None
-            # Fallback chain: any open position's market_id → current quarter-hour boundary
-            if not slug:
-                for inst in (hub.state.raw.get("instances") or {}).values():
-                    pos = inst.get("position")
-                    if pos and pos.get("market_id"):
-                        slug = pos["market_id"]
-                        break
-            now = int(_time.time())
-            m = re.search(r"btc-updown-15m-(\d+)", slug or "")
-            if not slug or not m or (int(m.group(1)) + 900) < now:
-                slug = f"btc-updown-15m-{(now // 900) * 900}"
-            win = compute_window(slug)
-            await ctx.send("window.tick", win.model_dump())
-            try:
-                await asyncio.wait_for(stop.wait(), timeout=1.0)
-            except asyncio.TimeoutError:
-                pass
-
-    ticker_task = asyncio.create_task(window_ticker())
 
     try:
         while True:
@@ -137,9 +107,3 @@ async def ws_endpoint(ws: WebSocket) -> None:
     finally:
         ctx.closed = True
         unsub()
-        stop.set()
-        ticker_task.cancel()
-        try:
-            await ticker_task
-        except (asyncio.CancelledError, Exception):
-            pass

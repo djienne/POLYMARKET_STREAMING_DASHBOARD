@@ -15,6 +15,7 @@ const ZOOM_4D_MS = 4 * 86_400_000;
 
 export default function EquitySparkline() {
   const series = useDash((s) => s.equitySeries);
+  const windowStartIso = useDash((s) => s.windowStartIso);
   // Prefer the live instance's starting_capital; fall back to the trader's
   // configured starting_capital (live: 100, paper grid: 1000) so a fresh run
   // with no trades still renders on a sensible scale.
@@ -44,13 +45,38 @@ export default function EquitySparkline() {
       const zoomed = full.filter((p) => p.ts >= cutoff);
       if (zoomed.length >= 2) return zoomed;
     }
+    if (full.length === 0) {
+      const now = Date.now();
+      const seedStart = windowStartIso != null ? Date.parse(windowStartIso) : NaN;
+      const startTs =
+        Number.isFinite(seedStart) && seedStart < now
+          ? seedStart
+          : now - 15 * 60 * 1000;
+      return [
+        { ts: startTs, v: start },
+        { ts: Math.max(startTs + 1000, now), v: start },
+      ];
+    }
     return full;
-  }, [series, mode]);
+  }, [series, mode, start, windowStartIso]);
 
   const last = data[data.length - 1]?.v ?? start;
-  const closedTrades = Math.max(data.length - 1, 0);
+  const closedTrades = Math.max(series.length - 1, 0);
   const up = last >= start;
   const color = up ? "#34d399" : "#fb7185";
+  const yMin = useMemo(() => {
+    const dataMin = data.reduce(
+      (min, point) => Math.min(min, point.v),
+      Number.POSITIVE_INFINITY,
+    );
+    if (!Number.isFinite(dataMin)) return Math.max(0, start * 0.9);
+    // For the live $100 baseline, keep the chart tight: start at $99 unless
+    // equity actually goes below $100, then give it $1 of breathing room.
+    if (start <= 100) {
+      return dataMin < 100 ? Math.max(0, dataMin - 1) : 99;
+    }
+    return Math.max(0, start * 0.9);
+  }, [data, start]);
 
   // Build 5 evenly spaced ticks so recharts doesn't pick dense auto-ticks
   const explicitTicks = useMemo(() => {
@@ -104,7 +130,7 @@ export default function EquitySparkline() {
             />
             <YAxis
               domain={[
-                Math.max(0, start * 0.9),
+                yMin,
                 (dataMax: number) => Math.ceil(dataMax + Math.max(2, start * 0.02)),
               ]}
               allowDataOverflow

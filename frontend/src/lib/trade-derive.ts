@@ -236,3 +236,50 @@ export function windowBoundsFromSlug(slug: string | null | undefined): {
     endIso: new Date(end).toISOString(),
   };
 }
+
+export function computeWindowStateFromBounds(
+  window: WindowState | null,
+  startIso: string | null | undefined,
+  endIso: string | null | undefined,
+  nowMs: number = Date.now(),
+): WindowState | null {
+  if (!window) return null;
+  const startMs = startIso != null ? Date.parse(startIso) : NaN;
+  const endMs = endIso != null ? Date.parse(endIso) : NaN;
+  const totalFromBounds =
+    Number.isFinite(startMs) && Number.isFinite(endMs) && endMs > startMs
+      ? (endMs - startMs) / 1000
+      : null;
+  const total_s = totalFromBounds ?? window.total_s ?? 900;
+  const no_trade_first_s = window.no_trade_first_s ?? 300;
+  const no_trade_last_s = window.no_trade_last_s ?? 120;
+
+  if (!Number.isFinite(startMs)) {
+    return {
+      ...window,
+      total_s,
+      no_trade_first_s,
+      no_trade_last_s,
+      zone: "unknown",
+    };
+  }
+
+  const elapsed_s = Math.max(0, nowMs / 1000 - startMs / 1000);
+  const zone =
+    elapsed_s >= total_s
+      ? "expired"
+      : elapsed_s < no_trade_first_s
+        ? "blocked_first"
+        : elapsed_s >= total_s - no_trade_last_s
+          ? "blocked_last"
+          : "tradeable";
+
+  return {
+    ...window,
+    elapsed_s,
+    total_s,
+    no_trade_first_s,
+    no_trade_last_s,
+    zone,
+  };
+}

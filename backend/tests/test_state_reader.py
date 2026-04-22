@@ -3,7 +3,13 @@ from pathlib import Path
 
 import pytest
 
-from app.collector.state_reader import StateReader, instance_from_raw, position_from_raw
+from app.collector.state_reader import (
+    StateReader,
+    instance_from_live_raw,
+    instance_from_raw,
+    position_from_live_raw,
+    position_from_raw,
+)
 
 
 def test_instance_stats_derivation():
@@ -92,3 +98,94 @@ def test_state_reader_instance_uses_supplied_starting_capital(tmp_path: Path):
     assert stats.starting_capital == 100.0
     assert stats.total_pnl == 10.0
     assert stats.total_pnl_pct == 10.0
+
+
+def test_instance_from_live_raw_uses_live_account_starting_capital():
+    raw = {
+        "capital": {
+            "starting": 101.006996,
+            "current": 100.99571,
+            "total_pnl": 0.0,
+        },
+        "closed_positions": [
+            {"result": "TP_FILLED", "pnl": 0.0},
+        ],
+        "open_positions": [],
+        "last_tp_fill_time": "2026-04-22T07:25:56.446441+00:00",
+    }
+    s = instance_from_live_raw(100, raw, starting_capital=100.0)
+    assert s is not None
+    assert s.starting_capital == pytest.approx(101.006996)
+    assert s.capital == pytest.approx(100.99571)
+    assert s.total_pnl == pytest.approx(0.0)
+    assert s.trades_count == 0
+    assert s.wins == 0
+    assert s.losses == 0
+
+
+def test_position_from_live_raw_uses_flat_live_schema():
+    raw = {
+        "open_positions": [
+            {
+                "direction": "DOWN",
+                "entry_price": 0.71,
+                "shares": 7.2,
+                "cost_basis": 5.112,
+                "opened_at": "2026-04-22T09:10:00+00:00",
+                "market_id": "btc-updown-15m-1776849300",
+            }
+        ],
+        "last_tp_fill_time": "2026-04-22T07:25:56.446441+00:00",
+    }
+    ps = position_from_live_raw(raw)
+    assert ps.open is not None
+    assert ps.open.direction == "DOWN"
+    assert ps.open.shares == pytest.approx(7.2)
+    assert ps.open.market_id == "btc-updown-15m-1776849300"
+
+
+def test_state_reader_supports_flat_live_schema(tmp_path: Path):
+    p = tmp_path / "15m_live_state.json"
+    p.write_text(json.dumps({
+        "capital": {
+            "starting": 101.006996,
+            "current": 100.99571,
+            "total_pnl": 0.0,
+        },
+        "closed_positions": [
+            {"result": "TP_FILLED", "pnl": 0.0},
+        ],
+        "open_positions": [],
+        "last_tp_fill_time": "2026-04-22T07:25:56.446441+00:00",
+    }))
+    r = StateReader(path_fn=lambda: p)
+    assert r.read_if_changed() is True
+    stats = r.instance(100, starting_capital=100.0)
+    assert stats is not None
+    assert stats.starting_capital == pytest.approx(101.006996)
+    assert r.trade_pnls(100) == []
+
+
+def test_live_state_counts_non_flat_close_as_trade():
+    raw = {
+        "capital": {
+            "starting": 101.006996,
+            "current": 102.006996,
+            "total_pnl": 1.0,
+        },
+        "closed_positions": [
+            {
+                "result": "TP_FILLED",
+                "pnl": 1.0,
+                "cost_basis": 5.0,
+                "proceeds": 6.0,
+            },
+        ],
+        "open_positions": [],
+        "last_tp_fill_time": "2026-04-22T07:25:56.446441+00:00",
+    }
+    s = instance_from_live_raw(100, raw, starting_capital=100.0)
+    assert s is not None
+    assert s.trades_count == 1
+    assert s.wins == 1
+    assert s.losses == 0

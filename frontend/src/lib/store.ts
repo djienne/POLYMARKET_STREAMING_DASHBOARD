@@ -16,6 +16,7 @@ import type {
   WsEnvelope,
 } from "./types";
 import {
+  computeWindowStateFromBounds,
   nextEntryChartContext,
   nextFlashQueue,
   nextLiveEquity,
@@ -60,6 +61,7 @@ interface DashState {
   setWsStatus: (s: WsStatus) => void;
   applyBootstrap: (p: BootstrapPayload) => void;
   applyEnvelope: (env: WsEnvelope) => void;
+  tickWindow: (nowMs?: number) => void;
   consumeFlash: (id: string) => void;
 }
 
@@ -142,7 +144,11 @@ export const useDash = create<DashState>((set, get) => ({
       instance: p.instance,
       position: p.position,
       terminal: p.terminal,
-      window: p.window,
+      window: computeWindowStateFromBounds(
+        p.window,
+        p.window_start_iso ?? null,
+        p.window_end_iso ?? null,
+      ),
       trades: p.trades,
       equity: p.equity,
       leaderboard: p.leaderboard_top,
@@ -204,11 +210,17 @@ export const useDash = create<DashState>((set, get) => ({
           if (ts && (up != null || down != null)) {
             const lastUpTs = modelUp[modelUp.length - 1]?.t;
             const lastDownTs = modelDown[modelDown.length - 1]?.t;
-            if (up != null && ts !== lastUpTs) {
-              modelUp = [...modelUp, { t: ts, v: up }].slice(-1000);
+            if (up != null) {
+              modelUp =
+                ts === lastUpTs
+                  ? [...modelUp.slice(0, -1), { t: ts, v: up }]
+                  : [...modelUp, { t: ts, v: up }].slice(-1000);
             }
-            if (down != null && ts !== lastDownTs) {
-              modelDown = [...modelDown, { t: ts, v: down }].slice(-1000);
+            if (down != null) {
+              modelDown =
+                ts === lastDownTs
+                  ? [...modelDown.slice(0, -1), { t: ts, v: down }]
+                  : [...modelDown, { t: ts, v: down }].slice(-1000);
             }
           }
           return {
@@ -264,7 +276,11 @@ export const useDash = create<DashState>((set, get) => ({
           const patch = ensureSlug(st, win.slug ?? null);
           return {
             ...patch,
-            window: win,
+            window: computeWindowStateFromBounds(
+              win,
+              bounds?.startIso ?? st.windowStartIso,
+              bounds?.endIso ?? st.windowEndIso,
+            ),
             windowStartIso: bounds?.startIso ?? st.windowStartIso,
             windowEndIso: bounds?.endIso ?? st.windowEndIso,
           };
@@ -289,6 +305,16 @@ export const useDash = create<DashState>((set, get) => ({
         break;
     }
   },
+
+  tickWindow: (nowMs = Date.now()) =>
+    set((st) => ({
+      window: computeWindowStateFromBounds(
+        st.window,
+        st.windowStartIso,
+        st.windowEndIso,
+        nowMs,
+      ),
+    })),
 
   consumeFlash: (id) =>
     set((st) => ({ flashQueue: st.flashQueue.filter((f) => f.id !== id) })),

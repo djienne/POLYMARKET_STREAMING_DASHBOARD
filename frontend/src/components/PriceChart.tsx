@@ -38,6 +38,7 @@ export default function PriceChart() {
   const position = useDash((s) => s.position.open);
   const polymarket = useDash((s) => s.terminal?.polymarket);
   const slug = useDash((s) => s.terminal?.market?.slug);
+  const windowElapsed = useDash((s) => s.window?.elapsed_s ?? null);
   const windowStart = useDash((s) => s.windowStartIso);
   const windowEnd = useDash((s) => s.windowEndIso);
 
@@ -48,14 +49,11 @@ export default function PriceChart() {
   // Merge all four series keyed by second-precision UTC timestamp
   const data = useMemo(() => {
     const map = new Map<number, any>();
-    const fallbackNowTs =
-      haveWindow ? Math.min(Math.max(Date.now(), startTs!), endTs!) : null;
-    const push = (t: string, key: string, v: number) => {
-      const ts = toTs(t);
-      if (ts == null) return;
-      if (haveWindow && (ts < startTs! || ts > endTs!)) return;
-      // Floor to second precision so small ms jitter never makes a point hop
-      // forward/backward across adjacent buckets on successive updates.
+    const fallbackNowTs = haveWindow
+      ? Math.floor(Math.min(Math.max(Date.now(), startTs!), endTs!) / 1000) * 1000
+      : null;
+    const bucketFor = (ts: number, key: string): number | null => {
+      if (haveWindow && (ts < startTs! || ts > endTs!)) return null;
       let bucket = Math.floor(ts / 1000) * 1000;
       if (
         haveWindow &&
@@ -68,8 +66,26 @@ export default function PriceChart() {
         // the next point, not briefly overwrite the seed bucket.
         bucket = startTs! + 1000;
       }
+      return bucket;
+    };
+    const push = (t: string, key: string, v: number) => {
+      const ts = toTs(t);
+      if (ts == null) return;
+      const bucket = bucketFor(ts, key);
+      if (bucket == null) return;
       const row = map.get(bucket) ?? { ts: bucket };
-      row[key] = v;
+      // If several model updates land in the first second, keep the first one
+      // so the handoff from the 0.5 seed stays visually stable.
+      if (
+        !(
+          haveWindow &&
+          key.startsWith("model_") &&
+          bucket === startTs! + 1000 &&
+          row[key] != null
+        )
+      ) {
+        row[key] = v;
+      }
       map.set(bucket, row);
     };
     for (const p of up) push(p.t, "poly_up", p.v);
@@ -108,21 +124,31 @@ export default function PriceChart() {
         map.set(startTs!, startRow);
       }
 
+      const pinModelSeed = (
+        key: "model_up" | "model_down",
+        firstPoint: { ts: number; v: number } | null,
+      ) => {
+        if (firstPoint == null) {
+          if (fallbackNowTs == null) return;
+          const row = map.get(fallbackNowTs) ?? { ts: fallbackNowTs };
+          if (row[key] == null) row[key] = 0.5;
+          map.set(fallbackNowTs, row);
+          return;
+        }
+        const firstBucket = bucketFor(firstPoint.ts, key);
+        if (firstBucket == null) return;
+        const handoffTs = Math.max(startTs!, firstBucket - 1000);
+        const row = map.get(handoffTs) ?? { ts: handoffTs };
+        if (row[key] == null) row[key] = 0.5;
+        map.set(handoffTs, row);
+      };
+
       // If no real model point has arrived yet, extend the 0.5 seed to "now"
-      // so the dashed model line is actually visible (otherwise it's a single
-      // point and Recharts won't draw anything).
-      if (firstModelUp == null && fallbackNowTs != null) {
-        const ts = fallbackNowTs;
-        const row = map.get(ts) ?? { ts };
-        if (row.model_up == null) row.model_up = 0.5;
-        map.set(ts, row);
-      }
-      if (firstModelDown == null && fallbackNowTs != null) {
-        const ts = fallbackNowTs;
-        const row = map.get(ts) ?? { ts };
-        if (row.model_down == null) row.model_down = 0.5;
-        map.set(ts, row);
-      }
+      // so the dashed model line is actually visible. Once the first real
+      // point exists, keep the seed pinned until one second before that point
+      // so the handoff doesn't visually "snap" backward.
+      pinModelSeed("model_up", firstModelUp);
+      pinModelSeed("model_down", firstModelDown);
 
       // If we only have a current Polymarket quote but no actual series points
       // yet, synthesize a second poly point "now" so the solid line renders.
@@ -144,7 +170,7 @@ export default function PriceChart() {
     }
 
     return Array.from(map.values()).sort((a, b) => a.ts - b.ts);
-  }, [up, down, modelUp, modelDown, polymarket, haveWindow, startTs, endTs]);
+  }, [up, down, modelUp, modelDown, polymarket, haveWindow, startTs, endTs, windowElapsed]);
 
   const lastUp = up[up.length - 1]?.v ?? polymarket?.prob_up ?? null;
   const lastDown = down[down.length - 1]?.v ?? polymarket?.prob_down ?? null;
