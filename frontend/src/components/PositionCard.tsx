@@ -14,7 +14,6 @@ export default function PositionCard() {
   const dirColor = dirUp ? "text-emerald-300" : "text-rose-300";
   const dirRing = dirUp ? "ring-emerald-400/40" : "ring-rose-400/40";
 
-  // Live position PnL estimate using latest market mid
   let livePnL: number | null = null;
   if (open && terminal?.polymarket) {
     const market =
@@ -52,7 +51,7 @@ export default function PositionCard() {
         {mode === "live" ? (
           <GracePill />
         ) : (
-          <span className="chip chip-mute text-[10px]">grid · n/a grace</span>
+          <span className="chip chip-mute text-[10px]">grid - n/a grace</span>
         )}
       </div>
 
@@ -72,12 +71,12 @@ export default function PositionCard() {
             <Stat
               label="notional"
               value={
-                open.notional != null ? `$${open.notional.toFixed(2)}` : "—"
+                open.notional != null ? `$${open.notional.toFixed(2)}` : "--"
               }
             />
             <Stat
               label="tp"
-              value={open.tp_target != null ? open.tp_target.toFixed(4) : "—"}
+              value={open.tp_target != null ? open.tp_target.toFixed(4) : "--"}
             />
             <Stat
               label="sl"
@@ -101,8 +100,16 @@ export default function PositionCard() {
           </div>
         </div>
       ) : (
-        <div className="text-slate-500 py-2 text-sm">
-          <span className="text-slate-300">Flat</span> · waiting for edge
+        <div className="flex-1 min-h-0 flex items-center">
+          <div className="w-full rounded-xl border border-ink-800/80 bg-[linear-gradient(180deg,rgba(15,23,42,0.42),rgba(15,23,42,0.16))] px-3 py-3">
+            <div className="flex items-center justify-between gap-2">
+              <div className="text-sm font-semibold text-slate-200">Flat</div>
+              <span className="chip chip-mute text-[10px]">no open position</span>
+            </div>
+            <div className="mt-1.5 text-xs leading-relaxed text-slate-500">
+              Waiting for a valid edge before entering the next trade.
+            </div>
+          </div>
         </div>
       )}
     </div>

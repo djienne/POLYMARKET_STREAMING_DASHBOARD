@@ -115,7 +115,7 @@ export default function BotStatusBanner({
         detail:
           tradeable
             ? "The trading window is open, but there is no valid edge yet."
-            : "Watching the market and waiting for the first valid edge inside the trading window.",
+            : "Watching the market and waiting for the first valid edge inside the allowed trading time window.",
         chips,
       };
     }

@@ -228,7 +228,7 @@ export default function InstanceStatsCard() {
       <div className="mb-1.5">
         <h2 className="card-header">Performance</h2>
         {orderSizePct != null && (
-          <div className="text-[10px] text-slate-500 font-mono mt-0.5">
+          <div className="text-[10px] leading-tight text-slate-500 font-mono mt-0.5">
             size{" "}
             <span className="text-cyan-200">
               {(orderSizePct * 100).toFixed(1)}%
@@ -262,39 +262,43 @@ export default function InstanceStatsCard() {
       </div>
 
       <SectionHeader label="All time" tone="slate" />
-      <div className="grid grid-cols-8 gap-2 mb-2">
+      <div className="rounded-xl border border-ink-800/70 bg-[linear-gradient(180deg,rgba(15,23,42,0.26),rgba(15,23,42,0.10))] px-2.5 py-2 mb-1.5">
+        <div className="grid grid-cols-8 gap-1.5">
         {tiles.map((t) => (
           <div key={t.label}>
             <div className="stat-label">{t.label}</div>
-            <div className={`font-mono text-base ${t.color ?? "text-slate-100"}`}>
+            <div className={`font-mono text-[15px] leading-tight ${t.color ?? "text-slate-100"}`}>
               {t.value}
             </div>
             {t.sub && (
-              <div className="text-[10px] text-slate-500 font-mono">
+              <div className="text-[9px] leading-tight text-slate-500 font-mono">
                 {t.sub}
               </div>
             )}
           </div>
         ))}
+        </div>
       </div>
 
       <SectionHeader label="Today" tone="cyan" />
-      <div className="grid grid-cols-4 gap-2 mb-2">
+      <div className="rounded-xl border border-cyan-500/12 bg-[linear-gradient(180deg,rgba(8,145,178,0.08),rgba(15,23,42,0.10))] px-2.5 py-2 mb-1.5">
+        <div className="grid grid-cols-4 gap-1.5">
         {todayTiles.map((t) => (
           <div key={t.label}>
             <div className="text-[10px] uppercase tracking-wider text-slate-500">
               {t.label}
             </div>
-            <div className={`font-mono text-base ${t.color ?? "text-slate-100"}`}>
+            <div className={`font-mono text-[15px] leading-tight ${t.color ?? "text-slate-100"}`}>
               {t.value}
             </div>
             {t.sub && (
-              <div className="text-[10px] text-slate-500 font-mono">
+              <div className="text-[9px] leading-tight text-slate-500 font-mono">
                 {t.sub}
               </div>
             )}
           </div>
         ))}
+        </div>
       </div>
 
       {params && (
@@ -313,7 +317,7 @@ function SectionHeader({ label, tone }: { label: string; tone: "slate" | "cyan" 
   const dotCls = tone === "cyan" ? "bg-cyan-300" : "bg-slate-400";
   const lineCls = tone === "cyan" ? "bg-cyan-500/30" : "bg-ink-700";
   return (
-    <div className="flex items-center gap-2 mb-1.5 mt-0.5">
+    <div className="flex items-center gap-2 mb-1 mt-0.5">
       <span className={`inline-block w-1.5 h-1.5 rounded-full ${dotCls}`} />
       <span className={`font-semibold uppercase tracking-[0.18em] text-[11px] ${textCls}`}>
         {label}
@@ -335,20 +339,20 @@ function ParamChip({ tile }: { tile: ParamTile }) {
   return (
     <div
       title={tile.hint}
-      className={`rounded-md border border-ink-800 bg-ink-900/40 px-2 py-1 ${
+      className={`rounded-lg border border-ink-800/80 bg-[linear-gradient(180deg,rgba(15,23,42,0.38),rgba(15,23,42,0.16))] px-2 py-1 ${
         tile.muted ? "opacity-60" : ""
       }`}
     >
       <div className="flex items-baseline gap-1.5">
-        <span className="font-mono text-cyan-200 text-xs">
+        <span className="font-mono text-cyan-200 text-[11px] leading-tight">
           {tile.short}
         </span>
-        <span className="text-[10px] text-slate-500 uppercase tracking-wider">
+        <span className="text-[9px] leading-tight text-slate-500 uppercase tracking-wider">
           {tile.long}
         </span>
       </div>
       <div
-        className={`font-mono text-sm ${
+        className={`font-mono text-[13px] leading-tight ${
           tile.muted ? "text-slate-500" : "text-slate-100"
         }`}
       >

@@ -7,28 +7,39 @@ export default function TradeFeed() {
   const trades = useDash((s) => s.trades);
 
   return (
-    <div className="card p-3 h-full flex flex-col">
-      <div className="flex items-baseline justify-between mb-2">
+    <div className="card p-3.5 h-full flex flex-col">
+      <div className="flex items-baseline justify-between mb-2.5">
         <h2 className="card-header">Trade feed</h2>
         <span className="text-[11px] text-slate-500 font-mono">
           last {trades.length}
         </span>
       </div>
 
-      <div className="overflow-auto flex-1 min-h-0 pr-1 -mr-1">
-        <ul className="flex flex-col gap-1">
-          <AnimatePresence initial={false}>
-            {trades.map((t, idx) => (
-              <TradeRow key={`${t.timestamp}-${t.event}-${t.direction}-${idx}`} trade={t} newest={idx === 0} />
-            ))}
-          </AnimatePresence>
-          {trades.length === 0 && (
-            <li className="py-6 text-center text-slate-500 text-xs">
-              No trades yet for this instance
-            </li>
-          )}
-        </ul>
-      </div>
+      {trades.length === 0 ? (
+        <div className="flex-1 min-h-0 flex items-center justify-center">
+          <div className="w-full rounded-xl border border-dashed border-ink-700/90 bg-[linear-gradient(180deg,rgba(15,23,42,0.52),rgba(15,23,42,0.22))] px-4 py-6 text-center">
+            <div className="mx-auto mb-3 flex h-10 w-10 items-center justify-center rounded-full border border-cyan-500/25 bg-cyan-500/10 shadow-[0_0_20px_rgba(34,211,238,0.08)]">
+              <span className="h-2.5 w-2.5 rounded-full bg-cyan-300 shadow-[0_0_10px_rgba(103,232,249,0.8)]" />
+            </div>
+            <div className="text-sm font-semibold text-slate-200">
+              No trade activity yet
+            </div>
+            <div className="mt-1 text-xs leading-relaxed text-slate-500">
+              Entries, take profits, and stop losses will appear here as soon as the bot starts trading.
+            </div>
+          </div>
+        </div>
+      ) : (
+        <div className="overflow-auto flex-1 min-h-0 pr-1 -mr-1">
+          <ul className="flex flex-col gap-1.5">
+            <AnimatePresence initial={false}>
+              {trades.map((t, idx) => (
+                <TradeRow key={`${t.timestamp}-${t.event}-${t.direction}-${idx}`} trade={t} newest={idx === 0} />
+              ))}
+            </AnimatePresence>
+          </ul>
+        </div>
+      )}
     </div>
   );
 }

@@ -1,24 +1,28 @@
 import { useEffect, useState } from "react";
 import { useDash } from "../lib/store";
-import { parisTzAbbrev, parisUtcOffset } from "../lib/format";
+import {
+  fmtLocalDateTimeSeconds,
+  parisTzAbbrev,
+  parisUtcOffset,
+} from "../lib/format";
 
 export default function Footer() {
   const ws = useDash((s) => s.wsStatus);
   const live = useDash((s) => s.liveness);
   const cal = useDash((s) => s.calibration);
   const t = cal.last_timing;
+  const [now, setNow] = useState(() => new Date());
 
-  // Re-evaluate the UTC offset once per hour so DST transitions are picked up
-  // without churning the render loop.
-  const [tzOffset, setTzOffset] = useState(() => parisUtcOffset());
-  const [tzAbbrev, setTzAbbrev] = useState(() => parisTzAbbrev());
   useEffect(() => {
     const id = setInterval(() => {
-      setTzOffset(parisUtcOffset());
-      setTzAbbrev(parisTzAbbrev());
-    }, 3_600_000);
+      setNow(new Date());
+    }, 1000);
     return () => clearInterval(id);
   }, []);
+
+  const tzOffset = parisUtcOffset(now);
+  const tzAbbrev = parisTzAbbrev(now);
+  const nowLabel = fmtLocalDateTimeSeconds(now);
 
   return (
     <footer className="border-t border-ink-800 bg-ink-950/90 backdrop-blur">
@@ -28,20 +32,24 @@ export default function Footer() {
         <Dot label="bot" ok={!!live?.bot_live} />
         <span className="text-slate-500">
           last tick{" "}
-          <span className="text-slate-300">
+          <span className="inline-flex w-[5ch] justify-end text-slate-300">
             {live?.terminal_age_s != null
               ? `${live.terminal_age_s.toFixed(1)}s`
-              : "—"}
+              : "--"}
           </span>
         </span>
         <span
           className="text-slate-500 uppercase tracking-[0.18em]"
-          title="All timestamps shown in Europe/Paris (same as Amsterdam — CET in winter, CEST in summer)"
+          title="All timestamps shown in Europe/Paris (same as Amsterdam - CET in winter, CEST in summer)"
         >
           tz{" "}
           <span className="text-slate-300">
-            Europe/Paris · {tzOffset}
+            Europe/Paris - {tzOffset}
             {tzAbbrev && ` (${tzAbbrev})`}
+          </span>
+          <span className="text-slate-500"> {" "}·{" "}</span>
+          <span className="text-slate-300 normal-case tracking-normal">
+            {nowLabel}
           </span>
         </span>
         <span className="text-slate-500 ml-auto">
@@ -68,12 +76,6 @@ export default function Footer() {
   );
 }
 
-/**
- * Hidden dev buttons — tiny dots tucked at the very end of the footer.
- * Click to fire a synthetic flash so the gif overlay can be verified without
- * waiting for a real fill. Not visually obvious: 10% opacity at rest, 70% on
- * hover.
- */
 function DevWinTrigger() {
   return (
     <button

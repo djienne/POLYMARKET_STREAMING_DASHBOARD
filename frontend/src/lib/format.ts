@@ -93,6 +93,28 @@ export function fmtLocalFull(ts: number | string | Date | null | undefined): str
   });
 }
 
+const PARIS_DATETIME_FMT = new Intl.DateTimeFormat("en-GB", {
+  timeZone: TZ,
+  year: "numeric",
+  month: "2-digit",
+  day: "2-digit",
+  hour: "2-digit",
+  minute: "2-digit",
+  second: "2-digit",
+  hour12: false,
+});
+
+export function fmtLocalDateTimeSeconds(
+  ts: number | string | Date | null | undefined,
+): string {
+  const d = _toDate(ts);
+  if (!d) return "â€”";
+  const parts = PARIS_DATETIME_FMT.formatToParts(d);
+  const pick = (type: Intl.DateTimeFormatPartTypes) =>
+    parts.find((p) => p.type === type)?.value ?? "";
+  return `${pick("day")}/${pick("month")}/${pick("year")} ${pick("hour")}:${pick("minute")}:${pick("second")}`;
+}
+
 const PARIS_DATE_FMT = new Intl.DateTimeFormat("en-CA", {
   timeZone: TZ,
   year: "numeric",

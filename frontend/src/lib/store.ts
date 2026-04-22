@@ -234,9 +234,17 @@ export const useDash = create<DashState>((set, get) => ({
                   : [...modelDown, { t: ts, v: down }].slice(-1000);
             }
           }
+          const calibration =
+            incoming.timing != null
+              ? {
+                  ...st.calibration,
+                  last_timing: incoming.timing,
+                }
+              : st.calibration;
           return {
             ...patch,
             terminal: { ...incoming, polymarket, market },
+            calibration,
             modelUp,
             modelDown,
           };
