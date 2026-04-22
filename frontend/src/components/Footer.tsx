@@ -10,7 +10,13 @@ export default function Footer() {
   const ws = useDash((s) => s.wsStatus);
   const live = useDash((s) => s.liveness);
   const cal = useDash((s) => s.calibration);
-  const t = cal.last_timing;
+  const terminalTiming = useDash((s) => s.terminal?.timing ?? null);
+  const t =
+    terminalTiming?.surface_fit_s != null ||
+    terminalTiming?.mc_s != null ||
+    terminalTiming?.calibration_s != null
+      ? terminalTiming
+      : cal.last_timing;
   const [now, setNow] = useState(() => new Date());
 
   useEffect(() => {

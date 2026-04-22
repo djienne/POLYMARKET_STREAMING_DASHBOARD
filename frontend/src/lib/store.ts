@@ -163,7 +163,13 @@ export const useDash = create<DashState>((set, get) => ({
       equity: p.equity,
       leaderboard: p.leaderboard_top,
       liveness: p.liveness,
-      calibration: p.calibration ?? initialCalibration,
+      calibration:
+        p.terminal?.timing != null
+          ? {
+              ...(p.calibration ?? initialCalibration),
+              last_timing: p.terminal.timing,
+            }
+          : (p.calibration ?? initialCalibration),
       edgeUp: p.edge_up,
       edgeDown: p.edge_down,
       sharedConfig: p.shared_config ?? get().sharedConfig,

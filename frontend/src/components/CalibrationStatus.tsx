@@ -3,7 +3,13 @@ import { useDash } from "../lib/store";
 
 export default function CalibrationStatus() {
   const cal = useDash((s) => s.calibration);
-  const timing = cal.last_timing;
+  const terminalTiming = useDash((s) => s.terminal?.timing ?? null);
+  const timing =
+    terminalTiming?.surface_fit_s != null ||
+    terminalTiming?.mc_s != null ||
+    terminalTiming?.calibration_s != null
+      ? terminalTiming
+      : cal.last_timing;
   const hasTiming = Boolean(timing && (timing.surface_fit_s || timing.mc_s));
 
   const tone = cal.active
