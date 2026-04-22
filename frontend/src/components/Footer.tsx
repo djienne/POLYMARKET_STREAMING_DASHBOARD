@@ -23,6 +23,14 @@ export default function Footer() {
   const tzOffset = parisUtcOffset(now);
   const tzAbbrev = parisTzAbbrev(now);
   const nowLabel = fmtLocalDateTimeSeconds(now);
+  const parisHour = Number(
+    new Intl.DateTimeFormat("en-GB", {
+      timeZone: "Europe/Paris",
+      hour: "2-digit",
+      hour12: false,
+    }).format(now),
+  );
+  const isHighActivityPeriod = parisHour >= 15 || parisHour < 5;
 
   return (
     <footer className="border-t border-ink-800 bg-ink-950/90 backdrop-blur">
@@ -50,6 +58,18 @@ export default function Footer() {
           <span className="text-slate-500"> {" "}·{" "}</span>
           <span className="text-slate-300 normal-case tracking-normal">
             {nowLabel}
+          </span>
+          <span className="text-slate-500"> {" "}·{" "}</span>
+          <span className="text-slate-400 normal-case tracking-normal">
+            most trading activity occurs between 15:00 and 05:00 CEST the next day
+          </span>
+          <span className="text-slate-500"> {" "}·{" "}</span>
+          <span
+            className={`normal-case tracking-normal ${
+              isHighActivityPeriod ? "text-emerald-300" : "text-amber-300"
+            }`}
+          >
+            now is {isHighActivityPeriod ? "high period" : "low period"}
           </span>
         </span>
         <span className="text-slate-500 ml-auto">
