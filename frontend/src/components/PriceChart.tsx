@@ -48,12 +48,15 @@ export default function PriceChart() {
   // Merge all four series keyed by second-precision UTC timestamp
   const data = useMemo(() => {
     const map = new Map<number, any>();
+    const fallbackNowTs =
+      haveWindow ? Math.min(Math.max(Date.now(), startTs!), endTs!) : null;
     const push = (t: string, key: string, v: number) => {
       const ts = toTs(t);
       if (ts == null) return;
       if (haveWindow && (ts < startTs! || ts > endTs!)) return;
-      // Bucket to the nearest second so poly and model points at the same tick merge
-      const bucket = Math.round(ts / 1000) * 1000;
+      // Floor to second precision so small ms jitter never makes a point hop
+      // forward/backward across adjacent buckets on successive updates.
+      const bucket = Math.floor(ts / 1000) * 1000;
       const row = map.get(bucket) ?? { ts: bucket };
       row[key] = v;
       map.set(bucket, row);
@@ -97,14 +100,14 @@ export default function PriceChart() {
       // If no real model point has arrived yet, extend the 0.5 seed to "now"
       // so the dashed model line is actually visible (otherwise it's a single
       // point and Recharts won't draw anything).
-      if (firstModelUp == null) {
-        const ts = Math.min(Math.max(Date.now(), startTs!), endTs!);
+      if (firstModelUp == null && fallbackNowTs != null) {
+        const ts = fallbackNowTs;
         const row = map.get(ts) ?? { ts };
         if (row.model_up == null) row.model_up = 0.5;
         map.set(ts, row);
       }
-      if (firstModelDown == null) {
-        const ts = Math.min(Math.max(Date.now(), startTs!), endTs!);
+      if (firstModelDown == null && fallbackNowTs != null) {
+        const ts = fallbackNowTs;
         const row = map.get(ts) ?? { ts };
         if (row.model_down == null) row.model_down = 0.5;
         map.set(ts, row);
@@ -115,17 +118,17 @@ export default function PriceChart() {
       if (
         firstPolyUp == null &&
         firstPolyDown == null &&
+        fallbackNowTs != null &&
         (polymarket?.prob_up != null || polymarket?.prob_down != null)
       ) {
-        const fallbackTs = Math.min(Math.max(Date.now(), startTs!), endTs!);
-        const fallbackRow = map.get(fallbackTs) ?? { ts: fallbackTs };
+        const fallbackRow = map.get(fallbackNowTs) ?? { ts: fallbackNowTs };
         if (fallbackRow.poly_up == null && polymarket?.prob_up != null) {
           fallbackRow.poly_up = polymarket.prob_up;
         }
         if (fallbackRow.poly_down == null && polymarket?.prob_down != null) {
           fallbackRow.poly_down = polymarket.prob_down;
         }
-        map.set(fallbackTs, fallbackRow);
+        map.set(fallbackNowTs, fallbackRow);
       }
     }
 
@@ -319,7 +322,7 @@ export default function PriceChart() {
             )}
 
             <Line
-              type="monotone"
+              type="linear"
               dataKey="model_up"
               name="model UP"
               stroke={UP_MODEL_COLOR}
@@ -330,7 +333,7 @@ export default function PriceChart() {
               connectNulls
             />
             <Line
-              type="monotone"
+              type="linear"
               dataKey="model_down"
               name="model DOWN"
               stroke={DOWN_MODEL_COLOR}
@@ -341,7 +344,7 @@ export default function PriceChart() {
               connectNulls
             />
             <Line
-              type="monotone"
+              type="linear"
               dataKey="poly_up"
               name="poly UP"
               stroke={UP_COLOR}
@@ -351,7 +354,7 @@ export default function PriceChart() {
               connectNulls
             />
             <Line
-              type="monotone"
+              type="linear"
               dataKey="poly_down"
               name="poly DOWN"
               stroke={DOWN_COLOR}

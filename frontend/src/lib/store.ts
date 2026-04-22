@@ -70,6 +70,20 @@ const initialCalibration: CalibrationStatus = {
   last_timing: null,
 };
 
+function mergePriceSeries(
+  prev: PricePoint[],
+  incoming: PricePoint[] | null | undefined,
+): PricePoint[] {
+  if (!incoming || incoming.length === 0) return prev;
+  const byTs = new Map<string, number>();
+  for (const p of prev) byTs.set(p.t, p.v);
+  for (const p of incoming) byTs.set(p.t, p.v);
+  return Array.from(byTs.entries())
+    .map(([t, v]) => ({ t, v }))
+    .sort((a, b) => a.t.localeCompare(b.t))
+    .slice(-1000);
+}
+
 export const useDash = create<DashState>((set, get) => ({
   mode: "dry_run",
   selectedInstanceId: 100,
@@ -200,8 +214,11 @@ export const useDash = create<DashState>((set, get) => ({
             st.terminal && prices
               ? { ...st.terminal, polymarket: prices }
               : st.terminal,
-          seriesUp: incomingUp ?? st.seriesUp,
-          seriesDown: incomingDown ?? st.seriesDown,
+          // Both the direct CLOB poller and the CSV fallback can publish this
+          // topic. Merge by timestamp so a shorter/staler update never makes
+          // the chart "snap back" to a smoother-looking sparse series.
+          seriesUp: mergePriceSeries(st.seriesUp, incomingUp),
+          seriesDown: mergePriceSeries(st.seriesDown, incomingDown),
         }));
         break;
       }
@@ -211,25 +228,9 @@ export const useDash = create<DashState>((set, get) => ({
       case "model.update": {
         const incomingUp = env.data.series_up ?? null;
         const incomingDown = env.data.series_down ?? null;
-        // Merge with existing series (which may have been appended to via
-        // terminal.update for faster cadence). Dedup by timestamp; never let
-        // an incoming shorter/stale series truncate a richer local one.
-        const merge = (
-          prev: { t: string; v: number }[],
-          incoming: { t: string; v: number }[] | null,
-        ) => {
-          if (!incoming || incoming.length === 0) return prev;
-          const byTs = new Map<string, number>();
-          for (const p of prev) byTs.set(p.t, p.v);
-          for (const p of incoming) byTs.set(p.t, p.v);
-          return Array.from(byTs.entries())
-            .map(([t, v]) => ({ t, v }))
-            .sort((a, b) => a.t.localeCompare(b.t))
-            .slice(-1000);
-        };
         set((st) => ({
-          modelUp: merge(st.modelUp, incomingUp),
-          modelDown: merge(st.modelDown, incomingDown),
+          modelUp: mergePriceSeries(st.modelUp, incomingUp),
+          modelDown: mergePriceSeries(st.modelDown, incomingDown),
         }));
         break;
       }
