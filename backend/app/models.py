@@ -186,6 +186,15 @@ class SharedConfig(BaseModel):
     sl_pct: Optional[float] = None
 
 
+class TodaySummary(BaseModel):
+    pnl: float = 0.0
+    pnl_pct: Optional[float] = None
+    entries: int = 0
+    wins: int = 0
+    losses: int = 0
+    closed: int = 0
+
+
 class PricePoint(BaseModel):
     t: str
     v: float
@@ -213,6 +222,7 @@ class BootstrapPayload(BaseModel):
     edge_up: Optional[EdgeRatio] = None
     edge_down: Optional[EdgeRatio] = None
     shared_config: SharedConfig = SharedConfig()
+    today_summary: TodaySummary = TodaySummary()
     series_up: list[PricePoint] = []
     series_down: list[PricePoint] = []
     model_up: list[PricePoint] = []

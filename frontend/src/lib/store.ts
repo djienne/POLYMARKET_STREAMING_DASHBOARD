@@ -11,6 +11,7 @@ import type {
   PricePoint,
   SharedConfig,
   TerminalSnapshot,
+  TodaySummary,
   TradeEvent,
   WindowState,
   WsEnvelope,
@@ -45,6 +46,7 @@ interface DashState {
   edgeUp: EdgeRatio | null;
   edgeDown: EdgeRatio | null;
   sharedConfig: SharedConfig;
+  todaySummary: TodaySummary;
   seriesUp: PricePoint[];
   seriesDown: PricePoint[];
   modelUp: PricePoint[];
@@ -131,6 +133,14 @@ export const useDash = create<DashState>((set, get) => ({
     grace_period_s: null,
     liquidity_mode: null,
   },
+  todaySummary: {
+    pnl: 0,
+    pnl_pct: null,
+    entries: 0,
+    wins: 0,
+    losses: 0,
+    closed: 0,
+  },
   wsStatus: "connecting",
   flashQueue: [],
 
@@ -157,6 +167,7 @@ export const useDash = create<DashState>((set, get) => ({
       edgeUp: p.edge_up,
       edgeDown: p.edge_down,
       sharedConfig: p.shared_config ?? get().sharedConfig,
+      todaySummary: p.today_summary ?? get().todaySummary,
       seriesUp: p.series_up ?? [],
       seriesDown: p.series_down ?? [],
       modelUp: p.model_up ?? [],
@@ -267,6 +278,7 @@ export const useDash = create<DashState>((set, get) => ({
           position: env.data.position,
           equity: env.data.equity,
           equitySeries: env.data.equity_series ?? get().equitySeries,
+          todaySummary: env.data.today_summary ?? get().todaySummary,
         });
         break;
       case "window.tick": {

@@ -2,8 +2,11 @@ import { useDash } from "../lib/store";
 
 export default function MarketInfoCard() {
   const terminal = useDash((s) => s.terminal);
+  const window = useDash((s) => s.window);
   const m = terminal?.market;
   const poly = terminal?.polymarket;
+  const liveTimeLeft =
+    window != null ? Math.max(0, window.total_s - window.elapsed_s) : null;
 
   const barrierDelta =
     m?.spot_price != null && m.barrier != null
@@ -82,7 +85,11 @@ export default function MarketInfoCard() {
         </Kv>
         <Kv label="Time left">
           <span className="font-mono text-slate-100 text-sm">
-            {m?.ttm_seconds != null ? formatSeconds(m.ttm_seconds) : "—"}
+            {liveTimeLeft != null
+              ? formatSeconds(liveTimeLeft)
+              : m?.ttm_seconds != null
+                ? formatSeconds(m.ttm_seconds)
+                : "—"}
           </span>
         </Kv>
       </div>

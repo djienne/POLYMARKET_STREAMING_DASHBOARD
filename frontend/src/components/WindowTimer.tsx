@@ -10,6 +10,8 @@ export default function WindowTimer() {
   const elapsedPct = Math.min(100, (w.elapsed_s / w.total_s) * 100);
   const firstPct = (w.no_trade_first_s / w.total_s) * 100;
   const lastPct = 100 - (w.no_trade_last_s / w.total_s) * 100;
+  const tradeableStart = formatSec(w.no_trade_first_s);
+  const tradeableEnd = formatSec(Math.max(0, w.total_s - w.no_trade_last_s));
 
   const zoneChipClass =
     w.zone === "tradeable"
@@ -19,11 +21,11 @@ export default function WindowTimer() {
         : "chip-warn";
   const zoneLabel =
     w.zone === "blocked_first"
-      ? "settling (blocked first 5m)"
+      ? `settling (blocked first ${formatSec(w.no_trade_first_s)})`
       : w.zone === "tradeable"
         ? "tradeable"
         : w.zone === "blocked_last"
-          ? "closing (blocked last 2m)"
+          ? `closing (blocked last ${formatSec(w.no_trade_last_s)})`
           : w.zone === "expired"
             ? "expired"
             : "unknown";
@@ -46,7 +48,6 @@ export default function WindowTimer() {
       </div>
 
       <div className="relative h-3 bg-ink-800 rounded overflow-hidden">
-        {/* Blocked zones */}
         <div
           className="absolute top-0 bottom-0 bg-amber-500/15"
           style={{ left: 0, width: `${firstPct}%` }}
@@ -55,17 +56,14 @@ export default function WindowTimer() {
           className="absolute top-0 bottom-0 bg-amber-500/15"
           style={{ left: `${lastPct}%`, width: `${100 - lastPct}%` }}
         />
-        {/* Tradeable zone */}
         <div
           className="absolute top-0 bottom-0 bg-emerald-500/10"
           style={{ left: `${firstPct}%`, width: `${lastPct - firstPct}%` }}
         />
-        {/* Progress cursor */}
         <div
           className="absolute top-0 bottom-0 w-[2px] bg-cyan-300 shadow-[0_0_8px_rgba(34,211,238,0.9)]"
           style={{ left: `calc(${elapsedPct}% - 1px)` }}
         />
-        {/* Zone dividers */}
         <div
           className="absolute top-0 bottom-0 w-px bg-amber-400/40"
           style={{ left: `${firstPct}%` }}
@@ -77,9 +75,9 @@ export default function WindowTimer() {
       </div>
 
       <div className="flex justify-between text-[10px] text-slate-500 mt-2 font-mono uppercase tracking-wider">
-        <span>blocked 5m</span>
-        <span className="text-emerald-300/70">tradeable 5–13m</span>
-        <span>blocked 2m</span>
+        <span>blocked {formatSec(w.no_trade_first_s)}</span>
+        <span className="text-emerald-300/70">tradeable {tradeableStart}-{tradeableEnd}</span>
+        <span>blocked {formatSec(w.no_trade_last_s)}</span>
       </div>
     </div>
   );

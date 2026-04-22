@@ -2,6 +2,8 @@ import { useDash } from "../lib/store";
 import ModeBadge from "./ModeBadge";
 import CalibrationStatus from "./CalibrationStatus";
 import CpuStatus from "./CpuStatus";
+import InstanceSelector from "./InstanceSelector";
+import BotStatusBanner from "./BotStatusBanner";
 
 export default function TopStrip() {
   const mode = useDash((s) => s.mode);
@@ -24,6 +26,8 @@ export default function TopStrip() {
 
         <ModeBadge mode={mode} />
 
+        {mode === "dry_run" && <InstanceSelector />}
+
         {mode === "live" && (
           <div className="rounded border border-amber-500/30 bg-amber-500/5 px-2.5 py-1 leading-tight">
             <div className="text-[9px] uppercase tracking-[0.18em] text-amber-200/60">
@@ -35,7 +39,9 @@ export default function TopStrip() {
           </div>
         )}
 
-        <div className="flex-1" />
+        <div className="flex-1 min-w-0">
+          <BotStatusBanner compact />
+        </div>
         <div className="flex items-center gap-2">
           <CalibrationStatus />
           <CpuStatus />

@@ -10,7 +10,8 @@ from typing import Deque, Optional
 
 from ..config import settings
 from ..events.bus import bus
-from ..models import TradeEvent
+from ..models import TodaySummary, TradeEvent
+from ..time_utils import paris_date_key
 
 log = logging.getLogger(__name__)
 
@@ -22,6 +23,8 @@ REALIZED_EVENTS = {
     "STOP_LOSS",
     "UNRESOLVED_RESTART",
 }
+WIN_EVENTS = {"TP_FILLED", "WIN_EXPIRY"}
+LOSS_EVENTS = {"STOP_LOSS", "LOSS_EXPIRY"}
 
 
 def _to_float(v: str) -> Optional[float]:
@@ -70,6 +73,7 @@ class TradesTail:
         self._header: Optional[list[str]] = None
         self._recent_per_instance: dict[int, Deque[TradeEvent]] = {}
         self._realized_per_instance: dict[int, list[TradeEvent]] = {}
+        self._daily_per_instance: dict[int, dict[str, TodaySummary]] = {}
         self._last_size: int = 0
 
     @property
@@ -87,6 +91,20 @@ class TradesTail:
         ):
             history = self._realized_per_instance.setdefault(event.instance_id, [])
             history.append(event)
+        day_key = paris_date_key(event.timestamp)
+        if day_key:
+            by_day = self._daily_per_instance.setdefault(event.instance_id, {})
+            summary = by_day.setdefault(day_key, TodaySummary())
+            if event.event == "ENTRY":
+                summary.entries += 1
+            if event.event in REALIZED_EVENTS:
+                summary.closed += 1
+                if event.pnl is not None:
+                    summary.pnl += event.pnl
+                if event.event in WIN_EVENTS:
+                    summary.wins += 1
+                elif event.event in LOSS_EVENTS:
+                    summary.losses += 1
 
     def seed(self, per_instance_limit: int = MAX_RECENT_PER_INSTANCE) -> list[TradeEvent]:
         """Read entire file once, populate per-instance buffers, advance offset to EOF."""
@@ -123,6 +141,7 @@ class TradesTail:
             self._offset = 0
             self._recent_per_instance.clear()
             self._realized_per_instance.clear()
+            self._daily_per_instance.clear()
             return self.seed()
         if size == self._last_size:
             return []
@@ -172,6 +191,10 @@ class TradesTail:
 
     def realized_history(self, instance_id: int) -> list[TradeEvent]:
         return list(self._realized_per_instance.get(instance_id, []))
+
+    def today_summary(self, instance_id: int, day_key: str) -> TodaySummary:
+        summary = self._daily_per_instance.get(instance_id, {}).get(day_key)
+        return summary.model_copy() if summary else TodaySummary()
 
 
 async def run_trades_loop(tail: "TradesTail", stop: asyncio.Event) -> None:

@@ -22,6 +22,7 @@ const MARKER_WIN = "#10b981";
 const MARKER_LOSS = "#f43f5e";
 const MARKER_ENTRY = "#22d3ee";
 const TP_LINE = "#facc15";
+const MODEL_DISPLAY_LOCK_S = 20;
 
 function toTs(iso: string | null | undefined): number | null {
   if (!iso) return null;
@@ -38,34 +39,36 @@ export default function PriceChart() {
   const position = useDash((s) => s.position.open);
   const polymarket = useDash((s) => s.terminal?.polymarket);
   const slug = useDash((s) => s.terminal?.market?.slug);
-  const windowElapsed = useDash((s) => s.window?.elapsed_s ?? null);
+  const window = useDash((s) => s.window);
+  const windowElapsed = window?.elapsed_s ?? null;
   const windowStart = useDash((s) => s.windowStartIso);
   const windowEnd = useDash((s) => s.windowEndIso);
 
   const startTs = toTs(windowStart);
   const endTs = toTs(windowEnd);
   const haveWindow = startTs != null && endTs != null;
+  const modelDisplayLockEndTs =
+    haveWindow ? Math.min(startTs! + MODEL_DISPLAY_LOCK_S * 1000, endTs!) : null;
+  const lockModelDisplay =
+    haveWindow && windowElapsed != null && windowElapsed < MODEL_DISPLAY_LOCK_S;
+  const blockedFirstMs = (window?.no_trade_first_s ?? 300) * 1000;
+  const blockedLastMs = (window?.no_trade_last_s ?? 120) * 1000;
+  const blockedLastStartTs =
+    haveWindow ? Math.max(startTs!, endTs! - blockedLastMs) : null;
 
   // Merge all four series keyed by second-precision UTC timestamp
   const data = useMemo(() => {
     const map = new Map<number, any>();
+    const visibleModelUp =
+      modelLockSeries(modelUp, modelDisplayLockEndTs);
+    const visibleModelDown =
+      modelLockSeries(modelDown, modelDisplayLockEndTs);
     const fallbackNowTs = haveWindow
       ? Math.floor(Math.min(Math.max(Date.now(), startTs!), endTs!) / 1000) * 1000
       : null;
     const bucketFor = (ts: number, key: string): number | null => {
       if (haveWindow && (ts < startTs! || ts > endTs!)) return null;
       let bucket = Math.floor(ts / 1000) * 1000;
-      if (
-        haveWindow &&
-        key.startsWith("model_") &&
-        bucket === startTs! &&
-        ts > startTs!
-      ) {
-        // Keep the synthetic 0.5 seed stable at the left edge. A real model
-        // point that arrives a few hundred ms after rollover should render as
-        // the next point, not briefly overwrite the seed bucket.
-        bucket = startTs! + 1000;
-      }
       return bucket;
     };
     const push = (t: string, key: string, v: number) => {
@@ -74,24 +77,13 @@ export default function PriceChart() {
       const bucket = bucketFor(ts, key);
       if (bucket == null) return;
       const row = map.get(bucket) ?? { ts: bucket };
-      // If several model updates land in the first second, keep the first one
-      // so the handoff from the 0.5 seed stays visually stable.
-      if (
-        !(
-          haveWindow &&
-          key.startsWith("model_") &&
-          bucket === startTs! + 1000 &&
-          row[key] != null
-        )
-      ) {
-        row[key] = v;
-      }
+      row[key] = v;
       map.set(bucket, row);
     };
     for (const p of up) push(p.t, "poly_up", p.v);
     for (const p of down) push(p.t, "poly_down", p.v);
-    for (const p of modelUp) push(p.t, "model_up", p.v);
-    for (const p of modelDown) push(p.t, "model_down", p.v);
+    for (const p of visibleModelUp) push(p.t, "model_up", p.v);
+    for (const p of visibleModelDown) push(p.t, "model_down", p.v);
 
     if (haveWindow) {
       // Restore the poly-line carry-back: seed t=0 with the first observed poll
@@ -111,8 +103,8 @@ export default function PriceChart() {
       // show a 7 s gap while calibration computes the first real model
       // probability. Model lines are already dashed, so the seeded segment
       // naturally reads as "estimated until the model catches up".
-      const firstModelUp = firstWindowPoint(modelUp, startTs!, endTs!);
-      const firstModelDown = firstWindowPoint(modelDown, startTs!, endTs!);
+      const firstModelUp = firstWindowPoint(visibleModelUp, startTs!, endTs!);
+      const firstModelDown = firstWindowPoint(visibleModelDown, startTs!, endTs!);
       startRow.model_up = 0.5;
       startRow.model_down = 0.5;
       if (
@@ -122,6 +114,19 @@ export default function PriceChart() {
         startRow.model_down != null
       ) {
         map.set(startTs!, startRow);
+      }
+
+      if (modelDisplayLockEndTs != null) {
+        const syntheticEndTs =
+          fallbackNowTs != null
+            ? Math.min(fallbackNowTs, modelDisplayLockEndTs)
+            : modelDisplayLockEndTs;
+        for (let ts = startTs! + 1000; ts <= syntheticEndTs; ts += 1000) {
+          const row = map.get(ts) ?? { ts };
+          row.model_up = 0.5;
+          row.model_down = 0.5;
+          map.set(ts, row);
+        }
       }
 
       const pinModelSeed = (
@@ -137,7 +142,7 @@ export default function PriceChart() {
         }
         const firstBucket = bucketFor(firstPoint.ts, key);
         if (firstBucket == null) return;
-        const handoffTs = Math.max(startTs!, firstBucket - 1000);
+        const handoffTs = Math.max(modelDisplayLockEndTs ?? startTs!, firstBucket - 1000);
         const row = map.get(handoffTs) ?? { ts: handoffTs };
         if (row[key] == null) row[key] = 0.5;
         map.set(handoffTs, row);
@@ -170,12 +175,28 @@ export default function PriceChart() {
     }
 
     return Array.from(map.values()).sort((a, b) => a.ts - b.ts);
-  }, [up, down, modelUp, modelDown, polymarket, haveWindow, startTs, endTs, windowElapsed]);
+  }, [
+    up,
+    down,
+    modelUp,
+    modelDown,
+    polymarket,
+    haveWindow,
+    startTs,
+    endTs,
+    windowElapsed,
+    lockModelDisplay,
+    modelDisplayLockEndTs,
+  ]);
 
   const lastUp = up[up.length - 1]?.v ?? polymarket?.prob_up ?? null;
   const lastDown = down[down.length - 1]?.v ?? polymarket?.prob_down ?? null;
-  const lastModelUp = modelUp[modelUp.length - 1]?.v ?? null;
-  const lastModelDown = modelDown[modelDown.length - 1]?.v ?? null;
+  const visibleModelUp =
+    modelLockSeries(modelUp, modelDisplayLockEndTs);
+  const visibleModelDown =
+    modelLockSeries(modelDown, modelDisplayLockEndTs);
+  const lastModelUp = lockModelDisplay ? 0.5 : (visibleModelUp[visibleModelUp.length - 1]?.v ?? 0.5);
+  const lastModelDown = lockModelDisplay ? 0.5 : (visibleModelDown[visibleModelDown.length - 1]?.v ?? 0.5);
   const lastPolyTs = up[up.length - 1]?.t ?? down[down.length - 1]?.t ?? null;
   const nowTs = Date.now();
 
@@ -306,7 +327,7 @@ export default function PriceChart() {
               <>
                 <ReferenceArea
                   x1={startTs!}
-                  x2={startTs! + 300_000}
+                  x2={startTs! + blockedFirstMs}
                   fill="#f59e0b"
                   fillOpacity={0.07}
                   stroke="none"
@@ -320,7 +341,7 @@ export default function PriceChart() {
                   }}
                 />
                 <ReferenceArea
-                  x1={startTs! + 780_000}
+                  x1={blockedLastStartTs!}
                   x2={endTs!}
                   fill="#f43f5e"
                   fillOpacity={0.07}
@@ -336,13 +357,13 @@ export default function PriceChart() {
                 />
                 {/* Crisp boundaries on top of the shading */}
                 <ReferenceLine
-                  x={startTs! + 300_000}
+                  x={startTs! + blockedFirstMs}
                   stroke="#f59e0b"
                   strokeDasharray="2 3"
                   strokeOpacity={0.5}
                 />
                 <ReferenceLine
-                  x={startTs! + 780_000}
+                  x={blockedLastStartTs!}
                   stroke="#f43f5e"
                   strokeDasharray="2 3"
                   strokeOpacity={0.5}
@@ -567,16 +588,34 @@ function formatTick(ts: number): string {
   return fmtLocalHM(ts);
 }
 
+function formatSec(s: number): string {
+  const m = Math.floor(Math.max(0, s) / 60);
+  const r = Math.floor(Math.max(0, s) % 60);
+  return `${m}:${r.toString().padStart(2, "0")}`;
+}
+
 function firstWindowPoint(
   series: { t: string; v: number }[],
   startTs: number,
   endTs: number,
+  minTs: number = startTs,
 ): { ts: number; v: number } | null {
   for (const p of series) {
     const ts = toTs(p.t);
     if (ts == null) continue;
-    if (ts < startTs || ts > endTs) continue;
+    if (ts < Math.max(startTs, minTs) || ts > endTs) continue;
     return { ts, v: p.v };
   }
   return null;
+}
+
+function modelLockSeries(
+  series: { t: string; v: number }[],
+  minTs: number | null,
+): { t: string; v: number }[] {
+  if (minTs == null) return series;
+  return series.filter((p) => {
+    const ts = toTs(p.t);
+    return ts != null && ts >= minTs;
+  });
 }

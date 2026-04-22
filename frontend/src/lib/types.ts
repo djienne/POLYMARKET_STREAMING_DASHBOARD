@@ -185,6 +185,15 @@ export interface SharedConfig {
   sl_pct?: number | null;
 }
 
+export interface TodaySummary {
+  pnl: number;
+  pnl_pct: number | null;
+  entries: number;
+  wins: number;
+  losses: number;
+  closed: number;
+}
+
 export interface PricePoint {
   t: string; // ISO timestamp
   v: number; // 0..1 mid probability
@@ -212,6 +221,7 @@ export interface BootstrapPayload {
   edge_up: EdgeRatio | null;
   edge_down: EdgeRatio | null;
   shared_config: SharedConfig;
+  today_summary: TodaySummary;
   series_up: PricePoint[];
   series_down: PricePoint[];
   model_up: PricePoint[];
@@ -245,6 +255,7 @@ export interface InstanceUpdateData {
   position: PositionState;
   equity: number[];
   equity_series?: PricePoint[];
+  today_summary?: TodaySummary;
 }
 
 export interface LeaderboardUpdateData {

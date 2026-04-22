@@ -1,20 +1,15 @@
 import { useMemo } from "react";
 import { useDash } from "../lib/store";
-import { fmtLocalDate, fmtMoney, fmtPct, parisDateKey } from "../lib/format";
-import { CLOSE_EVENTS } from "../lib/trade-derive";
-
-const WIN_EVENTS = new Set(["TP_FILLED", "WIN_EXPIRY"]);
-const LOSS_EVENTS = new Set(["STOP_LOSS", "LOSS_EXPIRY"]);
+import { fmtMoney, fmtPct } from "../lib/format";
 
 export default function InstanceStatsCard() {
   const inst = useDash((s) => s.instance);
   const shared = useDash((s) => s.sharedConfig);
   const trades = useDash((s) => s.trades);
   const equitySeries = useDash((s) => s.equitySeries);
+  const today = useDash((s) => s.todaySummary);
   const mode = useDash((s) => s.mode);
-  // In live mode the backend can't parse the flat live-state schema into
-  // InstanceStats, so `inst.params` is null. Fall back to sharedConfig (populated
-  // from config_trader_live.json) so the aU/aD/fU/fD/tp/sl chips still render.
+
   const params =
     inst?.params ??
     (shared.alpha_up != null &&
@@ -69,51 +64,6 @@ export default function InstanceStatsCard() {
     };
   }, [trades, equitySeries, inst]);
 
-  const today = useMemo(() => {
-    const empty = { pnl: 0, pnlPct: null as number | null, entries: 0, wins: 0, losses: 0, closed: 0 };
-    if (trades.length === 0) return empty;
-    const todayKey = parisDateKey(Date.now());
-    let pnl = 0;
-    let entries = 0;
-    let wins = 0;
-    let losses = 0;
-    let closed = 0;
-    for (const t of trades) {
-      if (parisDateKey(t.timestamp) !== todayKey) continue;
-      if (t.event === "ENTRY") entries += 1;
-      if (CLOSE_EVENTS.has(t.event)) {
-        if (t.pnl != null) pnl += t.pnl;
-        if (WIN_EVENTS.has(t.event)) wins += 1;
-        else if (LOSS_EVENTS.has(t.event)) losses += 1;
-        closed += 1;
-      }
-    }
-    // Portfolio-level %: PnL $ relative to capital at the last equity point
-    // strictly before today's local midnight. Fall back to starting_capital,
-    // then to (current capital − today's PnL) if equity history is sparse.
-    let baseCapital: number | null = null;
-    if (equitySeries.length > 0) {
-      for (let i = equitySeries.length - 1; i >= 0; i--) {
-        const p = equitySeries[i];
-        if (parisDateKey(p.t) !== todayKey) {
-          baseCapital = p.v;
-          break;
-        }
-      }
-    }
-    if (baseCapital == null && inst) {
-      const fallback = inst.capital - pnl;
-      baseCapital = fallback > 0 ? fallback : inst.starting_capital;
-    }
-    const pnlPct =
-      baseCapital && baseCapital > 0 && closed > 0
-        ? (pnl / baseCapital) * 100
-        : null;
-    return { pnl, pnlPct, entries, wins, losses, closed };
-  }, [trades, equitySeries, inst]);
-
-  // Fallback "empty" instance when the backend has no state yet (fresh live run
-  // with zero trades): show zeros instead of stalling on "Loading…" forever.
   const startingCapital =
     inst?.starting_capital ?? shared.starting_capital ?? 0;
   const view = inst ?? {
@@ -135,7 +85,7 @@ export default function InstanceStatsCard() {
     {
       label: "Capital",
       value: `$${view.capital.toFixed(2)}`,
-      sub: `start $${view.starting_capital.toFixed(0)}`,
+      sub: `start $${view.starting_capital.toFixed(2)}`,
     },
     {
       label: "Total PnL",
@@ -193,17 +143,22 @@ export default function InstanceStatsCard() {
     {
       label: "PnL $",
       value: today.closed > 0 ? fmtMoney(today.pnl) : "—",
-      color: today.pnl > 0 ? "text-emerald-300" : today.pnl < 0 ? "text-rose-300" : "text-slate-100",
+      color:
+        today.pnl > 0
+          ? "text-emerald-300"
+          : today.pnl < 0
+            ? "text-rose-300"
+            : "text-slate-100",
     },
     {
       label: "PnL %",
-      value: today.pnlPct != null ? fmtPct(today.pnlPct) : "—",
+      value: today.pnl_pct != null ? fmtPct(today.pnl_pct) : "—",
       color:
-        today.pnlPct == null
+        today.pnl_pct == null
           ? "text-slate-100"
-          : today.pnlPct > 0
+          : today.pnl_pct > 0
             ? "text-emerald-300"
-            : today.pnlPct < 0
+            : today.pnl_pct < 0
               ? "text-rose-300"
               : "text-slate-100",
     },
@@ -219,7 +174,6 @@ export default function InstanceStatsCard() {
     },
   ];
 
-  // Per-trade order size estimate based on current capital * order_size_pct
   const orderSizePct = shared.order_size_pct ?? null;
   const orderSizeUsd =
     orderSizePct != null ? view.capital * orderSizePct : null;

@@ -13,6 +13,7 @@ import InstanceStatsCard from "./components/InstanceStatsCard";
 import EquitySparkline from "./components/EquitySparkline";
 import PriceChart from "./components/PriceChart";
 import TradeFeed from "./components/TradeFeed";
+import LeaderboardMini from "./components/LeaderboardMini";
 import Footer from "./components/Footer";
 import AnimationCoordinator from "./components/anim/AnimationCoordinator";
 
@@ -32,6 +33,7 @@ export default function App() {
   const windowStartIso = useDash((s) => s.windowStartIso);
   const windowEndIso = useDash((s) => s.windowEndIso);
   const wsStatus = useDash((s) => s.wsStatus);
+  const mode = useDash((s) => s.mode);
 
   const refreshBootstrap = (instanceId: number) => {
     const requestId = ++bootstrapRequestRef.current;
@@ -160,10 +162,21 @@ export default function App() {
             </section>
           </div>
 
-          {/* Right rail: tall trade feed */}
-          <div className="min-h-0">
-            <TradeFeed />
-          </div>
+          {/* Right rail */}
+          {mode === "dry_run" ? (
+            <div className="min-h-0 grid grid-rows-[minmax(0,15fr)_minmax(0,25fr)] gap-3">
+              <div className="min-h-0">
+                <LeaderboardMini />
+              </div>
+              <div className="min-h-0">
+                <TradeFeed />
+              </div>
+            </div>
+          ) : (
+            <div className="min-h-0">
+              <TradeFeed />
+            </div>
+          )}
         </main>
 
         <Footer />

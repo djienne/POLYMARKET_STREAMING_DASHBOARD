@@ -76,3 +76,22 @@ def test_realized_history_includes_unresolved_restart(tmp_path: Path):
     history = t.realized_history(773)
     assert len(history) == 1
     assert history[0].event == "UNRESOLVED_RESTART"
+
+
+def test_today_summary_uses_full_day_history(tmp_path: Path):
+    p = tmp_path / "trades.csv"
+    rows = [
+        "773,2026-04-22T08:00:00+00:00,ENTRY,UP,slug,0.5,,10,,,,70000,70100\n",
+        "773,2026-04-22T08:01:00+00:00,TP_FILLED,UP,slug,0.5,0.8,10,3.00,,1003,0.6,0.5,70000,70100\n",
+        "773,2026-04-22T08:02:00+00:00,ENTRY,DOWN,slug,0.5,,10,,,,70000,70100\n",
+        "773,2026-04-22T08:03:00+00:00,STOP_LOSS,DOWN,slug,0.5,0.2,10,-2.00,,1001,0.4,0.5,70000,70100\n",
+    ]
+    p.write_text(HEADER + "".join(rows))
+    t = TradesTail(path_fn=lambda: p)
+    t.seed()
+    summary = t.today_summary(773, "2026-04-22")
+    assert summary.entries == 2
+    assert summary.closed == 2
+    assert summary.wins == 1
+    assert summary.losses == 1
+    assert summary.pnl == 1.0

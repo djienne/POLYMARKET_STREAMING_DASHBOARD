@@ -66,8 +66,13 @@ class LeaderboardReader:
             return False
         if self._last_mtime is not None and st.st_mtime == self._last_mtime:
             return False
-        self._rows = parse_leaderboard(self.path)
-        self._by_instance = {r.instance_id: r for r in self._rows}
+        try:
+            rows = parse_leaderboard(self.path)
+        except OSError as e:
+            log.warning("leaderboard read failed: %s", e)
+            return False
+        self._rows = rows
+        self._by_instance = {r.instance_id: r for r in rows}
         self._last_mtime = st.st_mtime
         return True
 
@@ -84,7 +89,12 @@ class LeaderboardReader:
 
 async def run_leaderboard_loop(reader: "LeaderboardReader", stop: asyncio.Event) -> None:
     while not stop.is_set():
-        if reader.read_if_changed():
+        try:
+            changed = reader.read_if_changed()
+        except Exception:  # noqa: BLE001
+            log.exception("leaderboard poll error")
+            changed = False
+        if changed:
             await bus.publish(
                 "leaderboard.update",
                 {"top": [r.model_dump() for r in reader.top(15)]},
