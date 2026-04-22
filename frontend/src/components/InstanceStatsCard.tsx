@@ -253,7 +253,7 @@ export default function InstanceStatsCard() {
                   className="text-amber-300/80"
                   title="Backtested trade rate on the live parameter set (aU=2.5 aD=1.8 fU=0.45 fD=0.45 tp=0.3)"
                 >
-                  backtest ≈ 7 trades/day
+                  from backtest, expect ~7 trades per day
                 </span>
               </span>
             )}
