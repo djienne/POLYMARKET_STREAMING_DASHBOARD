@@ -56,7 +56,18 @@ export default function PriceChart() {
       if (haveWindow && (ts < startTs! || ts > endTs!)) return;
       // Floor to second precision so small ms jitter never makes a point hop
       // forward/backward across adjacent buckets on successive updates.
-      const bucket = Math.floor(ts / 1000) * 1000;
+      let bucket = Math.floor(ts / 1000) * 1000;
+      if (
+        haveWindow &&
+        key.startsWith("model_") &&
+        bucket === startTs! &&
+        ts > startTs!
+      ) {
+        // Keep the synthetic 0.5 seed stable at the left edge. A real model
+        // point that arrives a few hundred ms after rollover should render as
+        // the next point, not briefly overwrite the seed bucket.
+        bucket = startTs! + 1000;
+      }
       const row = map.get(bucket) ?? { ts: bucket };
       row[key] = v;
       map.set(bucket, row);
@@ -86,8 +97,8 @@ export default function PriceChart() {
       // naturally reads as "estimated until the model catches up".
       const firstModelUp = firstWindowPoint(modelUp, startTs!, endTs!);
       const firstModelDown = firstWindowPoint(modelDown, startTs!, endTs!);
-      if (startRow.model_up == null) startRow.model_up = 0.5;
-      if (startRow.model_down == null) startRow.model_down = 0.5;
+      startRow.model_up = 0.5;
+      startRow.model_down = 0.5;
       if (
         startRow.poly_up != null ||
         startRow.poly_down != null ||

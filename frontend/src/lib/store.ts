@@ -70,6 +70,11 @@ const initialCalibration: CalibrationStatus = {
   last_timing: null,
 };
 
+function toPointTs(t: string): number | null {
+  const ts = Date.parse(t);
+  return Number.isFinite(ts) ? ts : null;
+}
+
 function mergePriceSeries(
   prev: PricePoint[],
   incoming: PricePoint[] | null | undefined,
@@ -80,7 +85,14 @@ function mergePriceSeries(
   for (const p of incoming) byTs.set(p.t, p.v);
   return Array.from(byTs.entries())
     .map(([t, v]) => ({ t, v }))
-    .sort((a, b) => a.t.localeCompare(b.t))
+    .sort((a, b) => {
+      const aTs = toPointTs(a.t);
+      const bTs = toPointTs(b.t);
+      if (aTs != null && bTs != null) return aTs - bTs;
+      if (aTs != null) return -1;
+      if (bTs != null) return 1;
+      return a.t.localeCompare(b.t);
+    })
     .slice(-1000);
 }
 
@@ -151,9 +163,12 @@ export const useDash = create<DashState>((set, get) => ({
 
   applyEnvelope: (env) => {
     switch (env.type) {
-      case "bootstrap":
+      case "bootstrap": {
+        const incomingId = env.data.instance?.instance_id ?? null;
+        if (incomingId != null && incomingId !== get().selectedInstanceId) break;
         get().applyBootstrap(env.data);
         break;
+      }
       case "terminal.update": {
         const incoming = env.data;
         const prev = get().terminal;

@@ -18,13 +18,29 @@ import AnimationCoordinator from "./components/anim/AnimationCoordinator";
 
 export default function App() {
   const wsRef = useRef<WsManager | null>(null);
+  const bootstrapRequestRef = useRef(0);
+  const didHandleInitialSelection = useRef(false);
   const setAllInstances = useDash((s) => s.setAllInstances);
   const setSelected = useDash((s) => s.setSelected);
   const applyBootstrap = useDash((s) => s.applyBootstrap);
-  const applyEnvelope = useDash((s) => s.applyEnvelope);
   const setWsStatus = useDash((s) => s.setWsStatus);
+  const applyEnvelope = useDash((s) => s.applyEnvelope);
   const selected = useDash((s) => s.selectedInstanceId);
   const windowStartIso = useDash((s) => s.windowStartIso);
+  const wsStatus = useDash((s) => s.wsStatus);
+
+  const refreshBootstrap = (instanceId: number) => {
+    const requestId = ++bootstrapRequestRef.current;
+    api.bootstrap(instanceId)
+      .then((payload) => {
+        if (requestId !== bootstrapRequestRef.current) return;
+        const currentSelected = useDash.getState().selectedInstanceId;
+        const payloadInstanceId = payload.instance?.instance_id ?? null;
+        if (payloadInstanceId != null && payloadInstanceId !== currentSelected) return;
+        applyBootstrap(payload);
+      })
+      .catch(console.error);
+  };
 
   useEffect(() => {
     // Allow overriding the selected instance via ?instance_id=N for dev / debugging
@@ -32,7 +48,7 @@ export default function App() {
     const urlId = new URLSearchParams(window.location.search).get("instance_id");
     const initialId = urlId != null && !Number.isNaN(Number(urlId)) ? Number(urlId) : selected;
     if (initialId !== selected) setSelected(initialId);
-    api.bootstrap(initialId).then(applyBootstrap).catch(console.error);
+    refreshBootstrap(initialId);
     api.instances().then(setAllInstances).catch(console.error);
 
     const ws = createWs();
@@ -45,8 +61,21 @@ export default function App() {
   }, []);
 
   useEffect(() => {
-    wsRef.current?.selectInstance(selected);
+    if (!didHandleInitialSelection.current) {
+      didHandleInitialSelection.current = true;
+      return;
+    }
+    if (wsStatus === "open") {
+      wsRef.current?.selectInstance(selected);
+      return;
+    }
+    refreshBootstrap(selected);
   }, [selected]);
+
+  useEffect(() => {
+    if (wsStatus !== "open") return;
+    wsRef.current?.selectInstance(selected);
+  }, [wsStatus]);
 
   // Re-fetch bootstrap whenever the 15-min market window changes. The WS stream
   // publishes model.update only when a new log line is parsed, which can leave
@@ -55,7 +84,7 @@ export default function App() {
   // to the new window and unsticks the chart within one poll cycle.
   useEffect(() => {
     if (!windowStartIso) return;
-    api.bootstrap(selected).then(applyBootstrap).catch(console.error);
+    refreshBootstrap(selected);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [windowStartIso]);
 
