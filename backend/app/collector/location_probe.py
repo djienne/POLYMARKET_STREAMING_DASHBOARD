@@ -41,12 +41,24 @@ class PingResult:
         return max(0.0, time.time() - self.measured_at)
 
 
+@dataclass
+class CpuResult:
+    pct: Optional[float] = None
+    measured_at: Optional[float] = None
+
+    def age_s(self) -> Optional[float]:
+        if self.measured_at is None:
+            return None
+        return max(0.0, time.time() - self.measured_at)
+
+
 class LocationProbe:
     """Measures Polymarket CLOB latency from the active trader side."""
 
     def __init__(self) -> None:
         self._local = PingResult()
         self._vps = PingResult()
+        self._vps_cpu = CpuResult()
 
     def read_location(self) -> str:
         """Returns "local" | "vps" | "stopped" | "unknown"."""
@@ -59,14 +71,49 @@ class LocationProbe:
             return val
         return "unknown"
 
+    def _read_trader_measured(self) -> Optional[PingResult]:
+        """Read the rolling median the live trader writes to .clob_latency_ms.
+
+        Format: "<median_ms> <samples> <epoch>\n" — atomically written by
+        order_book.py after every CLOB request, synced from VPS to local by
+        vps_state_sync when live is on VPS. When present and recent, this
+        is the most faithful latency number (warm-connection median of the
+        trader's last 12 CLOB calls).
+        """
+        path = settings.resolved_results_dir / ".clob_latency_ms"
+        try:
+            content = path.read_text(encoding="utf-8").strip()
+        except OSError:
+            return None
+        parts = content.split()
+        if not parts:
+            return None
+        try:
+            ms = float(parts[0])
+            epoch = int(parts[2]) if len(parts) > 2 else None
+        except (ValueError, IndexError):
+            return None
+        return PingResult(ms=ms, measured_at=float(epoch) if epoch else None)
+
     def active_ping(self) -> tuple[Optional[float], Optional[float], Optional[str]]:
-        """Returns (ping_ms, age_s, label) for the ACTIVE execution side."""
+        """Returns (ping_ms, age_s, label) for the ACTIVE execution side.
+
+        Priority: trader-measured warm-connection median > probe measurement.
+        """
         loc = self.read_location()
+        label = settings.vps_label if loc == "vps" else "local"
+
+        trader = self._read_trader_measured()
+        if trader is not None and trader.ms is not None:
+            age = trader.age_s()
+            # If the measurement is suspiciously stale (> 2 min), fall back
+            # to the synthetic probe.
+            if age is None or age <= 120:
+                return trader.ms, age, label
+
         if loc == "vps":
-            return self._vps.ms, self._vps.age_s(), settings.vps_label
-        # local / stopped / unknown → show local measurement (still a useful
-        # number — it's the dashboard host's view of Polymarket).
-        return self._local.ms, self._local.age_s(), "local"
+            return self._vps.ms, self._vps.age_s(), label
+        return self._local.ms, self._local.age_s(), label
 
     async def measure_local(self) -> None:
         url = f"{settings.polymarket_clob_url}/markets?limit=1"
@@ -81,17 +128,33 @@ class LocationProbe:
             log.debug("local polymarket probe failed: %s", exc)
 
     async def measure_vps(self) -> None:
-        """SSH to the VPS and ask curl to report its own `time_total`."""
+        """SSH to the VPS; one call gets both curl time_total AND a CPU sample.
+
+        The remote script reads /proc/stat twice with 500 ms between samples,
+        computes cpu% from the delta, and runs a curl probe in between (so
+        the two measurements share one SSH round-trip). Output format:
+            <time_total_seconds>
+            <cpu_pct>
+        """
         if not settings.vps_host:
             return
         key = settings.resolved_vps_ssh_key()
         if not key.exists():
             log.debug("vps ssh key not found: %s", key)
             return
-        # `curl -w '%{time_total}\n' -o /dev/null -s` prints just the time.
         remote_cmd = (
+            "read ib tb <<< \"$("
+            "awk 'NR==1{idle=$5+$6; total=0; for(i=2;i<=NF;i++) total+=$i; "
+            "print idle, total}' /proc/stat)\"; "
             f"curl -o /dev/null -s -w '%{{time_total}}\\n' "
-            f"'{settings.polymarket_clob_url}/markets?limit=1'"
+            f"'{settings.polymarket_clob_url}/markets?limit=1'; "
+            "sleep 0.5; "
+            "read ia ta <<< \"$("
+            "awk 'NR==1{idle=$5+$6; total=0; for(i=2;i<=NF;i++) total+=$i; "
+            "print idle, total}' /proc/stat)\"; "
+            "awk -v ib=\"$ib\" -v tb=\"$tb\" -v ia=\"$ia\" -v ta=\"$ta\" "
+            "'BEGIN{dt=ta-tb; if(dt>0){printf \"%.1f\\n\", 100*(1 - (ia-ib)/dt)} "
+            "else{print \"\"}}'"
         )
         cmd = [
             "ssh",
@@ -100,7 +163,7 @@ class LocationProbe:
             "-o", "ConnectTimeout=8",
             "-o", "BatchMode=yes",
             f"{settings.vps_user}@{settings.vps_host}",
-            remote_cmd,
+            f"bash -c '{remote_cmd}'",
         ]
         try:
             proc = await asyncio.create_subprocess_exec(
@@ -113,17 +176,37 @@ class LocationProbe:
             except asyncio.TimeoutError:
                 proc.kill()
                 await proc.wait()
-                log.debug("vps polymarket probe timed out")
+                log.debug("vps probe timed out")
                 return
-            if proc.returncode == 0 and stdout:
-                val = stdout.decode().strip()
+            if proc.returncode != 0:
+                log.debug("vps probe rc=%s err=%s", proc.returncode, stderr.decode()[:200])
+                return
+            lines = stdout.decode().strip().splitlines()
+            now = time.time()
+            if len(lines) >= 1:
                 try:
-                    seconds = float(val)
-                    self._vps = PingResult(ms=seconds * 1000.0, measured_at=time.time())
+                    self._vps = PingResult(ms=float(lines[0]) * 1000.0, measured_at=now)
                 except ValueError:
-                    log.debug("vps probe parse error: %r", val)
+                    log.debug("vps ping parse error: %r", lines[0])
+            if len(lines) >= 2 and lines[1]:
+                try:
+                    pct = float(lines[1])
+                    self._vps_cpu = CpuResult(
+                        pct=max(0.0, min(100.0, pct)), measured_at=now
+                    )
+                except ValueError:
+                    log.debug("vps cpu parse error: %r", lines[1])
         except Exception as exc:  # noqa: BLE001
-            log.debug("vps polymarket probe failed: %s", exc)
+            log.debug("vps probe failed: %s", exc)
+
+    def vps_cpu(self) -> Optional[float]:
+        """Last-measured VPS CPU%, or None if unknown/stale (> 2 min)."""
+        if self._vps_cpu.pct is None:
+            return None
+        age = self._vps_cpu.age_s()
+        if age is not None and age > 120:
+            return None
+        return self._vps_cpu.pct
 
 
 # Single shared instance used by liveness collector.

@@ -113,11 +113,22 @@ def current_liveness() -> LivenessInfo:
     fresh = age is not None and age < 60.0
     location = location_probe.read_location()
     ping_ms, ping_age_s, label = location_probe.active_ping()
+
+    # CPU reflects the side where the trader actually runs (SSVI calibration,
+    # probability models, MC — all happen there). Falls back to local sampling
+    # if the VPS probe hasn't returned yet or is stale.
+    local_cpu = _cpu_sampler.sample()
+    if location == "vps":
+        vps_cpu = location_probe.vps_cpu()
+        cpu_pct = vps_cpu if vps_cpu is not None else local_cpu
+    else:
+        cpu_pct = local_cpu
+
     return LivenessInfo(
         bot_live=lock_exists and fresh,
         lock_exists=lock_exists,
         terminal_age_s=age,
-        cpu_pct=_cpu_sampler.sample(),
+        cpu_pct=cpu_pct,
         execution_location=location,
         execution_label=label,
         polymarket_ping_ms=ping_ms,
