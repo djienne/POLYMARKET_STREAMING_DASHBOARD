@@ -18,6 +18,10 @@ fU=0.45 fD=0.65 tp=0.3 sl=0.2`):
 
 Locked to a 16:9 frame for clean OBS capture at 1920×1080.
 
+<p align="center">
+  <img src="screen.png" alt="Polymarket Streaming Dashboard screenshot" width="1100" />
+</p>
+
 ## Prerequisites
 
 - The bot in `../BTC_pricer_15m/` is running (Docker `btc_pricer_15m_grid` or otherwise)
