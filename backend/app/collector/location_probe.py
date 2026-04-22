@@ -61,15 +61,32 @@ class LocationProbe:
         self._vps_cpu = CpuResult()
 
     def read_location(self) -> str:
-        """Returns "local" | "vps" | "stopped" | "unknown"."""
+        """Returns "local" | "vps" | "stopped" | "unknown".""" 
+        location, _ = self._read_location_marker()
+        return location
+
+    def _read_location_marker(self) -> tuple[str, Optional[str]]:
+        """Returns (location_kind, profile_name).
+
+        Supported marker values:
+        - local
+        - stopped
+        - vps
+        - vps:<profile_name>
+        """
         p = settings.live_location_path()
         try:
             val = p.read_text(encoding="utf-8").strip()
         except OSError:
-            return "unknown"
-        if val in ("local", "vps", "stopped"):
-            return val
-        return "unknown"
+            return "unknown", None
+        if val in ("local", "stopped"):
+            return val, None
+        if val == "vps":
+            return "vps", None
+        if val.startswith("vps:"):
+            profile = val.split(":", 1)[1].strip() or None
+            return "vps", profile
+        return "unknown", None
 
     def _read_trader_measured(self) -> Optional[PingResult]:
         """Read the rolling median the live trader writes to .clob_latency_ms.
@@ -100,15 +117,17 @@ class LocationProbe:
 
         Priority: trader-measured warm-connection median > probe measurement.
         """
-        loc = self.read_location()
-        label = settings.vps_label if loc == "vps" else "local"
+        loc, profile_name = self._read_location_marker()
+        profile = settings.vps_profile(profile_name) if loc == "vps" else None
+        label = profile.label if profile is not None else (settings.vps_label if loc == "vps" else "local")
 
         trader = self._read_trader_measured()
         if trader is not None and trader.ms is not None:
             age = trader.age_s()
-            # If the measurement is suspiciously stale (> 2 min), fall back
-            # to the synthetic probe.
-            if age is None or age <= 120:
+            # Prefer the trader-written rolling median whenever it is not too
+            # old. A longer grace window avoids the UI dropping to blank when
+            # the VPS-side probe lags briefly or the sync loop hiccups.
+            if age is None or age <= 900:
                 return trader.ms, age, label
 
         if loc == "vps":
@@ -136,25 +155,35 @@ class LocationProbe:
             <time_total_seconds>
             <cpu_pct>
         """
-        if not settings.vps_host:
+        _, profile_name = self._read_location_marker()
+        profile = settings.vps_profile(profile_name)
+        if profile is None:
             return
-        key = settings.resolved_vps_ssh_key()
+        key = profile.ssh_key
         if not key.exists():
             log.debug("vps ssh key not found: %s", key)
             return
         remote_cmd = (
-            "read ib tb <<< \"$("
-            "awk 'NR==1{idle=$5+$6; total=0; for(i=2;i<=NF;i++) total+=$i; "
-            "print idle, total}' /proc/stat)\"; "
-            f"curl -o /dev/null -s -w '%{{time_total}}\\n' "
-            f"'{settings.polymarket_clob_url}/markets?limit=1'; "
-            "sleep 0.5; "
-            "read ia ta <<< \"$("
-            "awk 'NR==1{idle=$5+$6; total=0; for(i=2;i<=NF;i++) total+=$i; "
-            "print idle, total}' /proc/stat)\"; "
-            "awk -v ib=\"$ib\" -v tb=\"$tb\" -v ia=\"$ia\" -v ta=\"$ta\" "
-            "'BEGIN{dt=ta-tb; if(dt>0){printf \"%.1f\\n\", 100*(1 - (ia-ib)/dt)} "
-            "else{print \"\"}}'"
+            "python3 - <<'PY'\n"
+            "import subprocess, time\n"
+            "def cpu():\n"
+            "    with open('/proc/stat', 'r', encoding='utf-8') as f:\n"
+            "        parts = f.readline().split()\n"
+            "    values = [int(v) for v in parts[1:]]\n"
+            "    idle = values[3] + (values[4] if len(values) > 4 else 0)\n"
+            "    total = sum(values)\n"
+            "    return idle, total\n"
+            "ib, tb = cpu()\n"
+            f"out = subprocess.check_output(['curl', '-o', '/dev/null', '-s', '-w', '%{{time_total}}\\\\n', '{settings.polymarket_clob_url}/markets?limit=1'], text=True).strip()\n"
+            "print(out)\n"
+            "time.sleep(0.5)\n"
+            "ia, ta = cpu()\n"
+            "dt = ta - tb\n"
+            "if dt > 0:\n"
+            "    print(f'{100 * (1 - (ia - ib) / dt):.1f}')\n"
+            "else:\n"
+            "    print('')\n"
+            "PY"
         )
         cmd = [
             "ssh",
@@ -162,8 +191,8 @@ class LocationProbe:
             "-o", "StrictHostKeyChecking=no",
             "-o", "ConnectTimeout=8",
             "-o", "BatchMode=yes",
-            f"{settings.vps_user}@{settings.vps_host}",
-            f"bash -c '{remote_cmd}'",
+            f"{profile.user}@{profile.host}",
+            remote_cmd,
         ]
         try:
             proc = await asyncio.create_subprocess_exec(

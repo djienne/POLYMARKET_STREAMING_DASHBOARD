@@ -1,11 +1,22 @@
+import re
+from dataclasses import dataclass
 from pathlib import Path
-from typing import Literal
+from typing import Literal, Optional
 
 from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 # Project root: POLYMARKET_STREAMING_DASHBOARD/ (two up from this file).
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
+
+
+@dataclass(frozen=True)
+class VpsProfile:
+    name: str
+    host: str
+    user: str
+    label: str
+    ssh_key: Path
 
 
 class Settings(BaseSettings):
@@ -47,6 +58,7 @@ class Settings(BaseSettings):
     vps_user: str = "ubuntu"
     vps_label: str = "VPS Tokyo"
     vps_ssh_key: Path = Field(default=Path("vps_infos/lighter.pem"))
+    vps_dir: str = "/opt/btc_pricer_15m_live"
     polymarket_probe_interval_seconds: float = 30.0
 
     log_level: str = "INFO"
@@ -108,6 +120,72 @@ class Settings(BaseSettings):
 
     def resolved_vps_ssh_key(self) -> Path:
         return self._resolve(self.vps_ssh_key)
+
+    @staticmethod
+    def _friendly_vps_label(name: str) -> str:
+        words = [chunk for chunk in re.split(r"[_\-\s]+", name.strip()) if chunk]
+        if not words:
+            return "VPS"
+        return "VPS " + " ".join(w.capitalize() for w in words)
+
+    def _parse_vps_profile_file(self, name: str, path: Path) -> Optional[VpsProfile]:
+        try:
+            text = path.read_text(encoding="utf-8")
+        except OSError:
+            return None
+        host_match = re.search(r"(\d{1,3}(?:\.\d{1,3}){3})", text)
+        key_match = re.search(r"use key:\s*([^\r\n]+)", text, flags=re.IGNORECASE)
+        label_match = re.search(r"label:\s*([^\r\n]+)", text, flags=re.IGNORECASE)
+        user_match = re.search(r"user:\s*([^\r\n]+)", text, flags=re.IGNORECASE)
+        if host_match is None:
+            return None
+        ssh_key = (
+            self._resolve(Path("vps_infos") / key_match.group(1).strip())
+            if key_match is not None
+            else self.resolved_vps_ssh_key()
+        )
+        home_ssh_key = Path.home() / ".ssh" / ssh_key.name
+        if home_ssh_key.exists():
+            ssh_key = home_ssh_key.resolve()
+        label = (
+            label_match.group(1).strip()
+            if label_match is not None
+            else self._friendly_vps_label(name)
+        )
+        user = user_match.group(1).strip() if user_match is not None else self.vps_user
+        return VpsProfile(
+            name=name,
+            host=host_match.group(1),
+            user=user,
+            label=label,
+            ssh_key=ssh_key,
+        )
+
+    def vps_profile(self, profile_name: Optional[str] = None) -> Optional[VpsProfile]:
+        """Resolve a named VPS profile from vps_infos/*.txt or the default env config.
+
+        - None / "" / "default" / "vps" => use .env-backed default VPS
+        - any other name => load vps_infos/<name>.txt
+        """
+        normalized = (profile_name or "").strip()
+        if normalized in {"", "default", "vps"}:
+            if not self.vps_host:
+                return None
+            ssh_key = self.resolved_vps_ssh_key()
+            home_ssh_key = Path.home() / ".ssh" / ssh_key.name
+            if home_ssh_key.exists():
+                ssh_key = home_ssh_key.resolve()
+            return VpsProfile(
+                name="default",
+                host=self.vps_host,
+                user=self.vps_user,
+                label=self.vps_label,
+                ssh_key=ssh_key,
+            )
+        path = self._resolve(Path("vps_infos") / f"{normalized}.txt")
+        if not path.exists():
+            return None
+        return self._parse_vps_profile_file(normalized, path)
 
 
 settings = Settings()
