@@ -1,5 +1,5 @@
 import { AnimatePresence, motion } from "framer-motion";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useDash } from "../../lib/store";
 import { fmtMoney } from "../../lib/format";
 
@@ -44,6 +44,7 @@ function dismissMsFor(loopMs: number): number {
 export default function AnimationCoordinator() {
   const flashes = useDash((s) => s.flashQueue);
   const consumeFlash = useDash((s) => s.consumeFlash);
+  const timersRef = useRef<Map<string, number>>(new Map());
   const winFlash = flashes.find((f) => f.kind === "win");
   const lossFlash = flashes.find((f) => f.kind === "loss");
   const lossGif = lossFlash ? pickLossGif(lossFlash.id) : null;
@@ -51,8 +52,10 @@ export default function AnimationCoordinator() {
   const entryGif = entryFlash ? pickEntryGif(entryFlash.id) : null;
 
   useEffect(() => {
-    if (flashes.length === 0) return;
-    const timers = flashes.map((f) => {
+    const activeIds = new Set(flashes.map((f) => f.id));
+
+    for (const f of flashes) {
+      if (timersRef.current.has(f.id)) continue;
       let ms: number;
       if (f.kind === "win") {
         ms = dismissMsFor(WIN_GIF.loopMs);
@@ -63,15 +66,31 @@ export default function AnimationCoordinator() {
       } else {
         ms = 3500;
       }
-      return window.setTimeout(() => consumeFlash(f.id), ms);
-    });
-    return () => {
-      timers.forEach((t) => clearTimeout(t));
-    };
+      const timerId = window.setTimeout(() => {
+        timersRef.current.delete(f.id);
+        consumeFlash(f.id);
+      }, ms);
+      timersRef.current.set(f.id, timerId);
+    }
+
+    for (const [id, timerId] of timersRef.current.entries()) {
+      if (activeIds.has(id)) continue;
+      clearTimeout(timerId);
+      timersRef.current.delete(id);
+    }
   }, [flashes, consumeFlash]);
 
+  useEffect(() => {
+    return () => {
+      for (const timerId of timersRef.current.values()) {
+        clearTimeout(timerId);
+      }
+      timersRef.current.clear();
+    };
+  }, []);
+
   return (
-    <>
+    <div className="absolute inset-0 z-[70] overflow-hidden pointer-events-none">
       {/* Dicaprio celebration — pops up on every winning trade */}
       <AnimatePresence>
         {winFlash && (
@@ -81,7 +100,7 @@ export default function AnimationCoordinator() {
             animate={{ opacity: 1, scale: 1, rotate: 0 }}
             exit={{ opacity: 0, scale: 0.85, rotate: 3 }}
             transition={{ duration: 0.45, ease: [0.22, 1, 0.36, 1] }}
-            className="fixed inset-0 z-[60] flex items-center justify-center pointer-events-none"
+            className="absolute inset-0 flex items-center justify-center"
           >
             <div className="relative flex flex-col items-center">
               <div className="absolute inset-0 -m-10 rounded-full bg-emerald-500/20 blur-3xl" />
@@ -107,7 +126,7 @@ export default function AnimationCoordinator() {
             animate={{ opacity: 1, scale: 1, rotate: 0 }}
             exit={{ opacity: 0, scale: 0.85, rotate: 3 }}
             transition={{ duration: 0.45, ease: [0.22, 1, 0.36, 1] }}
-            className="fixed inset-0 z-[60] flex items-center justify-center pointer-events-none"
+            className="absolute inset-0 flex items-center justify-center"
           >
             <div className="relative flex flex-col items-center">
               <div className="absolute inset-0 -m-10 rounded-full bg-rose-500/20 blur-3xl" />
@@ -133,7 +152,7 @@ export default function AnimationCoordinator() {
             animate={{ opacity: 1, scale: 1, rotate: 0 }}
             exit={{ opacity: 0, scale: 0.85, rotate: 3 }}
             transition={{ duration: 0.45, ease: [0.22, 1, 0.36, 1] }}
-            className="fixed inset-0 z-[60] flex items-center justify-center pointer-events-none"
+            className="absolute inset-0 flex items-center justify-center"
           >
             <div className="relative flex flex-col items-center">
               <div
@@ -166,7 +185,7 @@ export default function AnimationCoordinator() {
         )}
       </AnimatePresence>
 
-      <div className="fixed top-16 right-4 z-40 flex flex-col gap-2 pointer-events-none">
+      <div className="absolute top-16 right-4 z-[71] flex flex-col gap-2">
       <AnimatePresence>
         {flashes.map((f) => {
           const palette =
@@ -239,7 +258,7 @@ export default function AnimationCoordinator() {
         })}
       </AnimatePresence>
       </div>
-    </>
+    </div>
   );
 }
 

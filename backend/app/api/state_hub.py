@@ -14,7 +14,11 @@ from ..collector.leaderboard_reader import LeaderboardReader
 from ..collector.liveness import current_liveness
 from ..collector.orderbook_tail import OrderbookTail
 from ..collector.polymarket_client import PolymarketClient
-from ..collector.state_reader import STARTING_CAPITAL, StateReader
+from ..collector.state_reader import (
+    STARTING_CAPITAL,
+    StateReader,
+    _is_meaningful_live_close_values,
+)
 from ..collector.terminal_reader import TerminalReader
 from ..collector.trades_tail import TradesTail
 from ..config import settings
@@ -385,13 +389,10 @@ class Hub:
                             pnl = row.get("pnl")
                             cost_basis = row.get("cost_basis")
                             proceeds = row.get("proceeds")
-                            meaningful = (
-                                pnl not in (None, "", "0", "0.0", "0.00")
-                                or (
-                                    cost_basis not in (None, "")
-                                    and proceeds not in (None, "")
-                                    and float(cost_basis) != float(proceeds)
-                                )
+                            meaningful = _is_meaningful_live_close_values(
+                                pnl,
+                                cost_basis,
+                                proceeds,
                             )
                         except (TypeError, ValueError):
                             meaningful = False

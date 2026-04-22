@@ -189,3 +189,46 @@ def test_live_state_counts_non_flat_close_as_trade():
     assert s.trades_count == 1
     assert s.wins == 1
     assert s.losses == 0
+
+
+def test_live_state_ignores_float_noise_flat_close():
+    raw = {
+        "capital": {
+            "starting": 101.006996,
+            "current": 97.643918,
+            "total_pnl": -3.0164208210227654,
+        },
+        "closed_positions": [
+            {
+                "result": "LOSS_EXPIRY",
+                "pnl": -4.965397604895929,
+                "cost_basis": 4.965397604895929,
+                "proceeds": 0.0,
+            },
+            {
+                "result": "WIN_EXPIRY",
+                "pnl": 1.16329669424755,
+                "cost_basis": 5.67962230575245,
+                "proceeds": 6.842919,
+            },
+            {
+                "result": "TP_FILLED",
+                "pnl": 0.7856798796256133,
+                "cost_basis": 5.696178800374387,
+                "proceeds": 6.48185868,
+            },
+            {
+                "result": "TP_FILLED",
+                "pnl": 2.1000000050008794e-07,
+                "cost_basis": 5.749998,
+                "proceeds": 5.74999821,
+            },
+        ],
+        "open_positions": [],
+        "last_tp_fill_time": "2026-04-22T15:43:19.076990+00:00",
+    }
+    s = instance_from_live_raw(100, raw, starting_capital=100.0)
+    assert s is not None
+    assert s.trades_count == 3
+    assert s.wins == 2
+    assert s.losses == 1

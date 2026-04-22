@@ -13,6 +13,7 @@ from ..models import InstanceStats, OpenPosition, PositionState
 log = logging.getLogger(__name__)
 
 STARTING_CAPITAL = 1000.0
+LIVE_CLOSE_EPSILON = 1e-6
 
 
 def _compute_sharpe(pnls: list[float]) -> float:
@@ -110,6 +111,27 @@ def _live_trade_pnls(raw: dict) -> list[float]:
     return pnls
 
 
+def _is_meaningful_live_close_values(
+    pnl: object,
+    cost_basis: object,
+    proceeds: object,
+    *,
+    epsilon: float = LIVE_CLOSE_EPSILON,
+) -> bool:
+    try:
+        pnl_f = float(pnl)
+    except (TypeError, ValueError):
+        pnl_f = 0.0
+    if abs(pnl_f) > epsilon:
+        return True
+    try:
+        if cost_basis is None or proceeds is None:
+            return False
+        return abs(float(cost_basis) - float(proceeds)) > epsilon
+    except (TypeError, ValueError):
+        return False
+
+
 def _is_meaningful_live_close(pos: object) -> bool:
     if not isinstance(pos, dict):
         return False
@@ -119,14 +141,7 @@ def _is_meaningful_live_close(pos: object) -> bool:
         proceeds = pos.get("proceeds")
     except AttributeError:
         return False
-    if pnl not in (0, 0.0):
-        return True
-    try:
-        if cost_basis is None or proceeds is None:
-            return False
-        return float(cost_basis) != float(proceeds)
-    except (TypeError, ValueError):
-        return False
+    return _is_meaningful_live_close_values(pnl, cost_basis, proceeds)
 
 
 def instance_from_live_raw(

@@ -62,8 +62,12 @@ export function nextFlashQueue(
 ): FlashEvent[] {
   const kind = classifyEvent(ev.event);
   if (!kind) return prev;
+  const baseQueue =
+    kind === "win" || kind === "loss"
+      ? prev.filter((f) => f.kind !== "entry")
+      : prev;
   return [
-    ...prev,
+    ...baseQueue,
     {
       id: `${ev.timestamp}-${ev.event}-${ev.instance_id}`,
       kind,

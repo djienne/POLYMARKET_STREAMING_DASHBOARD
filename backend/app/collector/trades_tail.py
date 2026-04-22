@@ -43,27 +43,93 @@ def _to_int(v: str) -> Optional[int]:
         return None
 
 
-def _row_to_event(row: dict) -> Optional[TradeEvent]:
+# Single-trader CSVs (live/paper 15m) don't carry an instance_id — pin to the
+# dashboard's default selected instance so the frontend filter matches.
+SINGLE_TRADER_INSTANCE_ID = 100
+
+
+def _row_to_events(row: dict) -> list[TradeEvent]:
+    """Parse one CSV row into 0, 1, or 2 TradeEvents.
+
+    Two schemas supported:
+    - Grid per-event (instance_id, timestamp, event, ...) → 1 event
+    - Single-trader per-position (id, opened_at, closed_at, result, ...) →
+      ENTRY at opened_at + close event at closed_at
+    """
     iid = _to_int(row.get("instance_id", ""))
-    if iid is None:
-        return None
-    return TradeEvent(
-        instance_id=iid,
-        timestamp=row.get("timestamp", ""),
-        event=row.get("event", ""),
-        direction=row.get("direction") or None,
-        market_id=row.get("market_id") or None,
-        entry_price=_to_float(row.get("entry_price", "")),
-        exit_price=_to_float(row.get("exit_price", "")),
-        shares=_to_float(row.get("shares", "")),
-        pnl=_to_float(row.get("pnl", "")),
-        pnl_pct=_to_float(row.get("pnl_pct", "")),
-        capital=_to_float(row.get("capital", "")),
-        model_prob=_to_float(row.get("model_prob", "")),
-        poly_prob=_to_float(row.get("poly_prob", "")),
-        spot_price=_to_float(row.get("spot_price", "")),
-        barrier=_to_float(row.get("barrier", "")),
+    if iid is not None:
+        ev = TradeEvent(
+            instance_id=iid,
+            timestamp=row.get("timestamp", ""),
+            event=row.get("event", ""),
+            direction=row.get("direction") or None,
+            market_id=row.get("market_id") or None,
+            entry_price=_to_float(row.get("entry_price", "")),
+            exit_price=_to_float(row.get("exit_price", "")),
+            shares=_to_float(row.get("shares", "")),
+            pnl=_to_float(row.get("pnl", "")),
+            pnl_pct=_to_float(row.get("pnl_pct", "")),
+            capital=_to_float(row.get("capital", "")),
+            model_prob=_to_float(row.get("model_prob", "")),
+            poly_prob=_to_float(row.get("poly_prob", "")),
+            spot_price=_to_float(row.get("spot_price", "")),
+            barrier=_to_float(row.get("barrier", "")),
+        )
+        return [ev]
+
+    opened_at = row.get("opened_at", "") or ""
+    if not opened_at:
+        return []
+    direction = row.get("direction") or None
+    entry_price = _to_float(row.get("entry_price", ""))
+    exit_price = _to_float(row.get("exit_price", ""))
+    shares = _to_float(row.get("shares", ""))
+    pnl = _to_float(row.get("pnl", ""))
+    pnl_pct = _to_float(row.get("pnl_pct", ""))
+    model_prob = _to_float(row.get("model_prob", ""))
+    poly_prob = _to_float(row.get("poly_price", ""))
+    spot_price = _to_float(row.get("spot_price", ""))
+    barrier = _to_float(row.get("reference_price", ""))
+    closed_at = row.get("closed_at", "") or ""
+    result = (row.get("result", "") or "").strip()
+
+    entry_ev = TradeEvent(
+        instance_id=SINGLE_TRADER_INSTANCE_ID,
+        timestamp=opened_at,
+        event="ENTRY",
+        direction=direction,
+        market_id=None,
+        entry_price=entry_price,
+        exit_price=None,
+        shares=shares,
+        pnl=None,
+        pnl_pct=None,
+        capital=None,
+        model_prob=model_prob,
+        poly_prob=poly_prob,
+        spot_price=spot_price,
+        barrier=barrier,
     )
+    if not closed_at or not result:
+        return [entry_ev]
+    close_ev = TradeEvent(
+        instance_id=SINGLE_TRADER_INSTANCE_ID,
+        timestamp=closed_at,
+        event=result,
+        direction=direction,
+        market_id=None,
+        entry_price=entry_price,
+        exit_price=exit_price,
+        shares=shares,
+        pnl=pnl,
+        pnl_pct=pnl_pct,
+        capital=None,
+        model_prob=model_prob,
+        poly_prob=poly_prob,
+        spot_price=spot_price,
+        barrier=barrier,
+    )
+    return [entry_ev, close_ev]
 
 
 class TradesTail:
@@ -117,8 +183,7 @@ class TradesTail:
                 reader = csv.DictReader(f)
                 self._header = reader.fieldnames
                 for row in reader:
-                    ev = _row_to_event(row)
-                    if ev:
+                    for ev in _row_to_events(row):
                         self._push(ev)
                         new_events.append(ev)
                 self._offset = f.tell()
@@ -170,8 +235,7 @@ class TradesTail:
                 self._offset += consumed
                 reader = csv.DictReader(io.StringIO(complete), fieldnames=self._header)
                 for row in reader:
-                    ev = _row_to_event(row)
-                    if ev:
+                    for ev in _row_to_events(row):
                         self._push(ev)
                         new_events.append(ev)
         except OSError:
