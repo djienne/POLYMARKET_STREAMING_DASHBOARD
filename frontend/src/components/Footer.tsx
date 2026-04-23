@@ -6,6 +6,13 @@ import {
   parisUtcOffset,
 } from "../lib/format";
 
+function timingSourceLabel(source: string | null | undefined): string | null {
+  if (!source) return null;
+  if (source === "local_offload") return "remote";
+  if (source === "vps_local") return "vps";
+  return source.replace(/_/g, " ").toLowerCase();
+}
+
 export default function Footer() {
   const ws = useDash((s) => s.wsStatus);
   const live = useDash((s) => s.liveness);
@@ -17,6 +24,7 @@ export default function Footer() {
     terminalTiming?.calibration_s != null
       ? terminalTiming
       : cal.last_timing;
+  const usedSource = timingSourceLabel(t?.used_source);
   const [now, setNow] = useState(() => new Date());
 
   useEffect(() => {
@@ -79,18 +87,26 @@ export default function Footer() {
           </span>
         </span>
         <span className="text-slate-500 ml-auto">
-          {t?.surface_fit_s != null && (
+          {t?.used_gap_s != null ? (
             <>
-              fit{" "}
-              <span className="text-slate-300">
-                {t.surface_fit_s.toFixed(2)}s
-              </span>
-              {"  "}
+              cadence <span className="text-slate-300">{t.used_gap_s.toFixed(1)}s</span>
+              {usedSource && (
+                <>
+                  {" "}
+                  <span className="text-slate-500">from</span>{" "}
+                  <span className="text-slate-300">{usedSource}</span>
+                </>
+              )}
             </>
-          )}
-          {t?.mc_s != null && (
+          ) : usedSource ? (
             <>
-              mc <span className="text-slate-300">{t.mc_s.toFixed(2)}s</span>
+              <span className="text-slate-500">first value from</span>{" "}
+              <span className="text-slate-300">{usedSource}</span>
+            </>
+          ) : null}
+          {t?.used_gap_s != null || usedSource ? null : t?.surface_fit_s != null && (
+            <>
+              fit <span className="text-slate-300">{t.surface_fit_s.toFixed(2)}s</span>
             </>
           )}
         </span>

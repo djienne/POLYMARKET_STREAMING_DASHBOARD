@@ -97,6 +97,8 @@ export interface TimingInfo {
   mc_s: number | null;
   bl_s: number | null;
   surface_bl_s: number | null;
+  used_gap_s?: number | null;
+  used_source?: string | null;
 }
 
 export interface TerminalSnapshot {

@@ -5,7 +5,7 @@ export default function CpuStatus() {
 
   if (cpuPct == null) {
     return (
-      <span className="chip chip-mute font-mono">
+      <span className="chip chip-mute font-mono w-[72px] min-w-[72px] justify-between">
         <span className="text-slate-500">cpu</span>
         <span className="text-slate-300">--</span>
       </span>
@@ -17,7 +17,7 @@ export default function CpuStatus() {
     rounded < 45 ? "chip-up" : rounded < 75 ? "chip-warn" : "chip-down";
 
   return (
-    <span className={`chip ${chipClass} font-mono`}>
+    <span className={`chip ${chipClass} font-mono w-[72px] min-w-[72px] justify-between`}>
       <span>cpu</span>
       <span>{rounded}%</span>
     </span>

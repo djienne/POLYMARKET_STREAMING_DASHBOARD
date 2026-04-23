@@ -85,6 +85,8 @@ def parse_terminal(raw: dict, path_mtime: Optional[float] = None) -> TerminalSna
         mc_s=timing.get("mc_s"),
         bl_s=timing.get("bl_s"),
         surface_bl_s=timing.get("surface_bl_s"),
+        used_gap_s=timing.get("used_gap_s"),
+        used_source=timing.get("used_source"),
     )
 
     age = None
@@ -98,6 +100,26 @@ def parse_terminal(raw: dict, path_mtime: Optional[float] = None) -> TerminalSna
         polymarket=polymarket,
         timing=t,
         age_seconds=age,
+    )
+
+
+def _merge_timing(prev: Optional[TimingInfo], incoming: TimingInfo) -> TimingInfo:
+    if prev is None:
+        return incoming
+    return TimingInfo(
+        calibration_s=incoming.calibration_s,
+        surface_fit_s=incoming.surface_fit_s,
+        mc_s=incoming.mc_s,
+        bl_s=incoming.bl_s,
+        surface_bl_s=incoming.surface_bl_s,
+        used_gap_s=(
+            incoming.used_gap_s if incoming.used_gap_s is not None else prev.used_gap_s
+        ),
+        used_source=(
+            incoming.used_source
+            if incoming.used_source is not None
+            else prev.used_source
+        ),
     )
 
 
@@ -127,6 +149,10 @@ class TerminalReader:
             log.warning("terminal read failed: %s", e)
             return None
         snap = parse_terminal(raw, st.st_mtime)
+        prev_timing = None
+        if self._last is not None and self._last.market.slug == snap.market.slug:
+            prev_timing = self._last.timing
+        snap.timing = _merge_timing(prev_timing, snap.timing)
         self._last_mtime = st.st_mtime
         self._last = snap
         # Record model probabilities for the current market (use avg = the one the bot uses).

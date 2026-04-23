@@ -105,6 +105,8 @@ class TimingInfo(BaseModel):
     mc_s: Optional[float] = None
     bl_s: Optional[float] = None
     surface_bl_s: Optional[float] = None
+    used_gap_s: Optional[float] = None
+    used_source: Optional[str] = None
 
 
 class TerminalSnapshot(BaseModel):

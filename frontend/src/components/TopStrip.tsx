@@ -43,7 +43,7 @@ export default function TopStrip() {
         <div className="flex-1 min-w-0">
           <BotStatusBanner compact />
         </div>
-        <div className="flex items-center gap-2.5">
+        <div className="flex items-center justify-end gap-2.5 w-[496px] min-w-[496px]">
           <CalibrationStatus />
           <CpuStatus />
           <LocationChip />

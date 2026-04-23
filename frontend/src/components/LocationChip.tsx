@@ -11,7 +11,7 @@ export default function LocationChip() {
 
   if (!loc && pingMs == null) {
     return (
-      <span className="chip chip-mute font-mono">
+      <span className="chip chip-mute font-mono w-[176px] min-w-[176px] items-center gap-1.5 pl-2 pr-1">
         <span className="text-slate-500">loc</span>
         <span className="text-slate-300">--</span>
       </span>
@@ -44,17 +44,21 @@ export default function LocationChip() {
 
   return (
     <span
-      className="chip chip-mute font-mono"
+      className="chip chip-mute font-mono w-[182px] min-w-[182px] items-center gap-3 pl-2 pr-1"
       title={
         pingMs != null
           ? `Polymarket CLOB latency measured from ${displayLabel}: ${pingMs.toFixed(0)} ms`
           : `Live trader running on ${displayLabel}`
       }
     >
-      <span className={`inline-block w-1.5 h-1.5 rounded-full ${dotClass}`} />
-      <span className="text-slate-300">{displayLabel}</span>
+      <span className="inline-flex items-center gap-1.5 min-w-0">
+        <span className={`inline-block w-1.5 h-1.5 rounded-full shrink-0 ${dotClass}`} />
+        <span className="text-slate-300 whitespace-nowrap">{displayLabel}</span>
+      </span>
       {pingMs != null && (
-        <span className={pingClass}>{pingMs.toFixed(0)}ms</span>
+        <span className={`${pingClass} inline-flex w-[44px] justify-end shrink-0`}>
+          {pingMs.toFixed(0)}ms
+        </span>
       )}
     </span>
   );

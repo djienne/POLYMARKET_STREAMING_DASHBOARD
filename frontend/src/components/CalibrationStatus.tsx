@@ -1,6 +1,13 @@
 import { AnimatePresence, motion } from "framer-motion";
 import { useDash } from "../lib/store";
 
+function sourceLabel(source: string | null | undefined): string | null {
+  if (!source) return null;
+  if (source === "local_offload") return "REMOTE";
+  if (source === "vps_local") return "VPS";
+  return source.replace(/_/g, " ").toUpperCase();
+}
+
 export default function CalibrationStatus() {
   const cal = useDash((s) => s.calibration);
   const terminalTiming = useDash((s) => s.terminal?.timing ?? null);
@@ -10,7 +17,14 @@ export default function CalibrationStatus() {
     terminalTiming?.calibration_s != null
       ? terminalTiming
       : cal.last_timing;
-  const hasTiming = Boolean(timing && (timing.surface_fit_s || timing.mc_s));
+  const hasTiming = Boolean(
+    timing &&
+      (timing.used_gap_s != null ||
+        timing.used_source != null ||
+        timing.surface_fit_s ||
+        timing.mc_s),
+  );
+  const usedSource = sourceLabel(timing?.used_source);
 
   const tone = cal.active
     ? "border-amber-500/35 bg-amber-500/10 text-amber-200"
@@ -27,15 +41,12 @@ export default function CalibrationStatus() {
   const detail = cal.active
     ? `Refreshing probabilities${cal.elapsed_s != null ? ` | ${cal.elapsed_s.toFixed(0)}s` : ""}`
     : hasTiming
-      ? [
-          timing?.surface_fit_s != null
-            ? `Fit ${timing.surface_fit_s.toFixed(2)}s`
-            : null,
-          timing?.mc_s != null ? `MC ${timing.mc_s.toFixed(2)}s` : null,
-        ]
-          .filter(Boolean)
-          .join(" | ")
-      : "Waiting for first calibration";
+      ? timing?.used_gap_s != null
+        ? `${usedSource ? `${usedSource} | ` : ""}cadence ${timing.used_gap_s.toFixed(1)}s`
+        : usedSource
+          ? `${usedSource} | live updates`
+          : "Live updates"
+      : "Waiting for first used value";
 
   return (
     <AnimatePresence mode="wait">
@@ -44,7 +55,7 @@ export default function CalibrationStatus() {
         initial={{ opacity: 0, y: -4 }}
         animate={{ opacity: 1, y: 0 }}
         exit={{ opacity: 0, y: -4 }}
-        className={`w-[178px] rounded-lg border px-3 py-1.5 leading-tight ${tone}`}
+        className={`w-[212px] min-w-[212px] rounded-lg border px-3 py-1.5 leading-tight ${tone}`}
       >
         <div className="flex items-center gap-2 whitespace-nowrap">
           <span className="relative flex h-2.5 w-2.5 shrink-0">

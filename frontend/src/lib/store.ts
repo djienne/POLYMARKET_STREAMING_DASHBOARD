@@ -10,6 +10,7 @@ import type {
   PositionState,
   PricePoint,
   SharedConfig,
+  TimingInfo,
   TerminalSnapshot,
   TodaySummary,
   TradeEvent,
@@ -73,6 +74,48 @@ const initialCalibration: CalibrationStatus = {
   elapsed_s: null,
   last_timing: null,
 };
+
+function mergeLivenessInfo(
+  prev: LivenessInfo | null | undefined,
+  incoming: LivenessInfo | null | undefined,
+): LivenessInfo | null {
+  if (!incoming) return prev ?? null;
+  return {
+    ...incoming,
+    polymarket_ping_ms:
+      incoming.polymarket_ping_ms != null
+        ? incoming.polymarket_ping_ms
+        : (prev?.polymarket_ping_ms ?? null),
+    polymarket_ping_age_s:
+      incoming.polymarket_ping_ms != null
+        ? incoming.polymarket_ping_age_s
+        : (prev?.polymarket_ping_age_s ?? null),
+    execution_label:
+      incoming.execution_label != null
+        ? incoming.execution_label
+        : (prev?.execution_label ?? null),
+    execution_location:
+      incoming.execution_location != null
+        ? incoming.execution_location
+        : (prev?.execution_location ?? null),
+  };
+}
+
+function mergeTimingInfo(
+  prev: TimingInfo | null | undefined,
+  incoming: TimingInfo | null | undefined,
+): TimingInfo | null {
+  if (!incoming) return prev ?? null;
+  return {
+    ...incoming,
+    used_gap_s:
+      incoming.used_gap_s != null ? incoming.used_gap_s : (prev?.used_gap_s ?? null),
+    used_source:
+      incoming.used_source != null
+        ? incoming.used_source
+        : (prev?.used_source ?? null),
+  };
+}
 
 function toPointTs(t: string): number | null {
   const ts = Date.parse(t);
@@ -149,11 +192,28 @@ export const useDash = create<DashState>((set, get) => ({
   setWsStatus: (s) => set({ wsStatus: s }),
 
   applyBootstrap: (p) =>
-    set({
+    set((st) => ({
+      ...(st.terminal?.market?.slug !== p.terminal?.market?.slug
+        ? {
+            calibration: p.calibration ?? initialCalibration,
+          }
+        : {}),
       mode: p.mode,
       instance: p.instance,
       position: p.position,
-      terminal: p.terminal,
+      terminal:
+        p.terminal != null
+          ? {
+              ...p.terminal,
+              timing:
+                mergeTimingInfo(
+                  st.terminal?.market?.slug === p.terminal?.market?.slug
+                    ? st.terminal?.timing
+                    : null,
+                  p.terminal.timing,
+                ) ?? p.terminal.timing,
+            }
+          : p.terminal,
       window: computeWindowStateFromBounds(
         p.window,
         p.window_start_iso ?? null,
@@ -162,12 +222,20 @@ export const useDash = create<DashState>((set, get) => ({
       trades: p.trades,
       equity: p.equity,
       leaderboard: p.leaderboard_top,
-      liveness: p.liveness,
+      liveness: mergeLivenessInfo(st.liveness, p.liveness),
       calibration:
         p.terminal?.timing != null
           ? {
+              ...((st.terminal?.market?.slug !== p.terminal?.market?.slug
+                ? initialCalibration
+                : st.calibration) ?? initialCalibration),
               ...(p.calibration ?? initialCalibration),
-              last_timing: p.terminal.timing,
+              last_timing: mergeTimingInfo(
+                st.terminal?.market?.slug === p.terminal?.market?.slug
+                  ? st.calibration.last_timing
+                  : null,
+                p.terminal.timing,
+              ),
             }
           : (p.calibration ?? initialCalibration),
       edgeUp: p.edge_up,
@@ -182,7 +250,7 @@ export const useDash = create<DashState>((set, get) => ({
       windowStartIso: p.window_start_iso ?? null,
       windowEndIso: p.window_end_iso ?? null,
       equitySeries: p.equity_series ?? [],
-    }),
+    })),
 
   applyEnvelope: (env) => {
     switch (env.type) {
@@ -240,16 +308,29 @@ export const useDash = create<DashState>((set, get) => ({
                   : [...modelDown, { t: ts, v: down }].slice(-1000);
             }
           }
+          const sameMarket = st.terminal?.market?.slug === (market?.slug ?? null);
           const calibration =
             incoming.timing != null
               ? {
-                  ...st.calibration,
-                  last_timing: incoming.timing,
+                  ...(sameMarket ? st.calibration : initialCalibration),
+                  last_timing: mergeTimingInfo(
+                    sameMarket ? st.calibration.last_timing : null,
+                    incoming.timing,
+                  ),
                 }
-              : st.calibration;
+              : (sameMarket ? st.calibration : initialCalibration);
+          const timing = mergeTimingInfo(
+            sameMarket ? st.terminal?.timing : null,
+            incoming.timing,
+          );
           return {
             ...patch,
-            terminal: { ...incoming, polymarket, market },
+            terminal: {
+              ...incoming,
+              polymarket,
+              market,
+              timing: timing ?? incoming.timing,
+            },
             calibration,
             modelUp,
             modelDown,
@@ -315,14 +396,22 @@ export const useDash = create<DashState>((set, get) => ({
       }
       case "liveness.update":
       case "liveness.tick":
-        set({ liveness: env.data });
+        set((st) => ({ liveness: mergeLivenessInfo(st.liveness, env.data) }));
         break;
       case "leaderboard.update":
         set({ leaderboard: env.data.top });
         break;
       case "calibration.start":
       case "calibration.end":
-        set({ calibration: env.data });
+        set((st) => ({
+          calibration: {
+            ...env.data,
+            last_timing: mergeTimingInfo(
+              st.calibration.last_timing,
+              env.data.last_timing,
+            ),
+          },
+        }));
         break;
       case "trade.append":
         handleTrade(env.data, get, set);
