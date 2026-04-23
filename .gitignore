@@ -14,6 +14,24 @@ debug.png
 Untitled.png
 *.zip
 
-# VPS access material — private keys, host-specific scripts. Must never leak.
+# local generated artifacts
+.codex_tmp/
+.patchgen_*/
+BTC_pricer_15m_*_work_*/
+ps_patch/
+obs/
+results/
+*.patch
+.codex_commit_index_*
+title_description.txt
+vps_vs_local_latency_ssvi_summary.md
+
+# ad-hoc local media; tracked assets are unaffected
+*.png
+*.jpg
+*.jpeg
+*.gif
+
+# VPS access material - private keys, host-specific scripts. Must never leak.
 vps_infos/
 *.pem

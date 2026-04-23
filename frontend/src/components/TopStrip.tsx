@@ -34,9 +34,6 @@ export default function TopStrip() {
             <div className="text-[9px] uppercase tracking-[0.18em] text-amber-200/60">
               Live Account
             </div>
-            <div className="font-mono text-[11px] text-amber-300/90">
-              https://polymarket.com/@freqtradefr
-            </div>
           </div>
         )}
 
