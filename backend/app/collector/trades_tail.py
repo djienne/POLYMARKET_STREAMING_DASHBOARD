@@ -142,6 +142,14 @@ class TradesTail:
         self._daily_per_instance: dict[int, dict[str, TodaySummary]] = {}
         self._last_size: int = 0
 
+    def _ensure_seeded_for_instance(self, instance_id: int) -> None:
+        if instance_id in self._recent_per_instance:
+            return
+        p = self.path
+        if not p.exists():
+            return
+        self.seed()
+
     @property
     def path(self) -> Path:
         return self._path_fn()
@@ -243,6 +251,7 @@ class TradesTail:
         return new_events
 
     def recent(self, instance_id: int, n: int = 50) -> list[TradeEvent]:
+        self._ensure_seeded_for_instance(instance_id)
         dq = self._recent_per_instance.get(instance_id)
         if not dq:
             return []
@@ -254,9 +263,11 @@ class TradesTail:
         return self.realized_history(instance_id)
 
     def realized_history(self, instance_id: int) -> list[TradeEvent]:
+        self._ensure_seeded_for_instance(instance_id)
         return list(self._realized_per_instance.get(instance_id, []))
 
     def today_summary(self, instance_id: int, day_key: str) -> TodaySummary:
+        self._ensure_seeded_for_instance(instance_id)
         summary = self._daily_per_instance.get(instance_id, {}).get(day_key)
         return summary.model_copy() if summary else TodaySummary()
 
