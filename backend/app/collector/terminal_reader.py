@@ -103,8 +103,48 @@ def parse_terminal(raw: dict, path_mtime: Optional[float] = None) -> TerminalSna
     )
 
 
-def _merge_timing(prev: Optional[TimingInfo], incoming: TimingInfo) -> TimingInfo:
+def _snapshot_epoch(snap: TerminalSnapshot, fallback_mtime: Optional[float]) -> Optional[float]:
+    if snap.timestamp:
+        text = snap.timestamp.replace("Z", "+00:00")
+        try:
+            dt = datetime.fromisoformat(text)
+            if dt.tzinfo is None:
+                dt = dt.replace(tzinfo=timezone.utc)
+            return dt.timestamp()
+        except ValueError:
+            pass
+    return fallback_mtime
+
+
+def _observed_gap_s(
+    prev_snap: Optional[TerminalSnapshot],
+    snap: TerminalSnapshot,
+    prev_mtime: Optional[float],
+    mtime: float,
+) -> Optional[float]:
+    if prev_snap is None:
+        return None
+    prev_epoch = _snapshot_epoch(prev_snap, prev_mtime)
+    cur_epoch = _snapshot_epoch(snap, mtime)
+    if prev_epoch is not None and cur_epoch is not None:
+        gap = cur_epoch - prev_epoch
+        if gap > 0:
+            return gap
+    if prev_mtime is not None:
+        gap = mtime - prev_mtime
+        if gap > 0:
+            return gap
+    return None
+
+
+def _merge_timing(
+    prev: Optional[TimingInfo],
+    incoming: TimingInfo,
+    observed_gap_s: Optional[float] = None,
+) -> TimingInfo:
     if prev is None:
+        if incoming.used_gap_s is None and observed_gap_s is not None:
+            incoming.used_gap_s = observed_gap_s
         return incoming
     return TimingInfo(
         calibration_s=incoming.calibration_s,
@@ -112,14 +152,11 @@ def _merge_timing(prev: Optional[TimingInfo], incoming: TimingInfo) -> TimingInf
         mc_s=incoming.mc_s,
         bl_s=incoming.bl_s,
         surface_bl_s=incoming.surface_bl_s,
-        used_gap_s=(
-            incoming.used_gap_s if incoming.used_gap_s is not None else prev.used_gap_s
-        ),
-        used_source=(
-            incoming.used_source
-            if incoming.used_source is not None
-            else prev.used_source
-        ),
+        # Source/cadence fields describe this specific timing payload. Do not
+        # carry them forward, or the UI can show stale "remote" after switching
+        # the live trader back to local calibration.
+        used_gap_s=incoming.used_gap_s if incoming.used_gap_s is not None else observed_gap_s,
+        used_source=incoming.used_source,
     )
 
 
@@ -149,10 +186,16 @@ class TerminalReader:
             log.warning("terminal read failed: %s", e)
             return None
         snap = parse_terminal(raw, st.st_mtime)
+        prev_snap = None
         prev_timing = None
         if self._last is not None and self._last.market.slug == snap.market.slug:
+            prev_snap = self._last
             prev_timing = self._last.timing
-        snap.timing = _merge_timing(prev_timing, snap.timing)
+        snap.timing = _merge_timing(
+            prev_timing,
+            snap.timing,
+            _observed_gap_s(prev_snap, snap, self._last_mtime, st.st_mtime),
+        )
         self._last_mtime = st.st_mtime
         self._last = snap
         # Record model probabilities for the current market (use avg = the one the bot uses).

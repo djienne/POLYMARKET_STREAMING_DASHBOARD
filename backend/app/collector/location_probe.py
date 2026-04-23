@@ -1,17 +1,14 @@
 """Polymarket latency probe for the current live-trader execution location.
 
 Reads `results/.live_location` to learn whether the live trader is running
-locally or on the VPS, then measures Polymarket CLOB latency from the ACTIVE
+locally or on a VPS, then measures Polymarket CLOB latency from the active
 side:
 
-- local  → httpx GET from the dashboard host (= the local trader host) to
-  clob.polymarket.com and record the wall time.
-- vps    → ssh to the VPS and run curl there so the measurement reflects
-  what the VPS trader actually experiences. SSH handshake overhead is
-  stripped — we only keep curl's `time_total`.
+- local: httpx GET from the dashboard host to clob.polymarket.com
+- vps: SSH to the configured VPS and run curl there
 
-Falls back to "—" if the probe fails. Never leaks host addresses to callers;
-only `location_label` (e.g. "VPS Tokyo") and a numeric ping_ms are exposed.
+Falls back to blank ping data if the probe fails. Never leaks host addresses to
+callers; only `location_label` (e.g. "VPS") and numeric ping_ms are exposed.
 """
 
 from __future__ import annotations
@@ -93,7 +90,7 @@ class LocationProbe:
     def _read_trader_measured(self) -> Optional[PingResult]:
         """Read the rolling median the live trader writes to .clob_latency_ms.
 
-        Format: "<median_ms> <samples> <epoch>\n" — atomically written by
+        Format: "<median_ms> <samples> <epoch>\n" - atomically written by
         order_book.py after every CLOB request, synced from VPS to local by
         vps_state_sync when live is on VPS. When present and recent, this
         is the most faithful latency number (warm-connection median of the

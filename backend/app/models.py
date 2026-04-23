@@ -175,7 +175,7 @@ class LivenessInfo(BaseModel):
     # dashboard host; vps measures via ssh-to-VPS + curl so the number is
     # what the VPS trader actually experiences).
     execution_location: Optional[str] = None
-    execution_label: Optional[str] = None  # human-friendly, e.g. "VPS Tokyo"
+    execution_label: Optional[str] = None  # human-friendly, e.g. "VPS"
     polymarket_ping_ms: Optional[float] = None
     polymarket_ping_age_s: Optional[float] = None
 

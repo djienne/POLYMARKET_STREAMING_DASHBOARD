@@ -1,7 +1,12 @@
 import { AnimatePresence, motion } from "framer-motion";
 import { useDash } from "../lib/store";
 
-function sourceLabel(source: string | null | undefined): string | null {
+function sourceLabel(
+  source: string | null | undefined,
+  executionLocation: string | null | undefined,
+): string | null {
+  if (executionLocation === "local") return "LOCAL";
+  if (executionLocation === "vps") return "REMOTE";
   if (!source) return null;
   if (source === "local_offload") return "REMOTE";
   if (source === "vps_local") return "VPS";
@@ -10,6 +15,7 @@ function sourceLabel(source: string | null | undefined): string | null {
 
 export default function CalibrationStatus() {
   const cal = useDash((s) => s.calibration);
+  const executionLocation = useDash((s) => s.liveness?.execution_location ?? null);
   const terminalTiming = useDash((s) => s.terminal?.timing ?? null);
   const timing =
     terminalTiming?.surface_fit_s != null ||
@@ -24,7 +30,7 @@ export default function CalibrationStatus() {
         timing.surface_fit_s ||
         timing.mc_s),
   );
-  const usedSource = sourceLabel(timing?.used_source);
+  const usedSource = sourceLabel(timing?.used_source, executionLocation);
 
   const tone = cal.active
     ? "border-amber-500/35 bg-amber-500/10 text-amber-200"

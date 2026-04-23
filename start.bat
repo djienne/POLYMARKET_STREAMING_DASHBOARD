@@ -1,13 +1,12 @@
 @echo off
-REM start.bat — bring up BTC_pricer_15m (grid + live) AND the dashboard (uvicorn + vite).
-REM Safe to run when services are already up: docker compose is idempotent; port bind errors
-REM from the dashboard just mean it is already running.
+REM start.bat - start the BTC_pricer_15m paper grid and the dashboard.
+REM Live trading is controlled only by live_switch.ps1.
 
 setlocal
 
-echo [start] docker compose up -d (grid + live) ...
+echo [start] docker compose up -d grid ...
 pushd "%~dp0..\BTC_pricer_15m"
-docker compose up -d
+docker compose up -d grid
 popd
 
 echo [start] launching backend uvicorn on :8799 ...

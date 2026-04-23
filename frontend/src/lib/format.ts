@@ -1,27 +1,27 @@
 export function fmtMoney(v: number | null | undefined, d = 2): string {
-  if (v == null || Number.isNaN(v)) return "—";
-  const sign = v < 0 ? "−" : v > 0 ? "+" : "";
+  if (v == null || Number.isNaN(v)) return "--";
+  const sign = v < 0 ? "-" : v > 0 ? "+" : "";
   return `${sign}$${Math.abs(v).toFixed(d)}`;
 }
 
 export function fmtPct(v: number | null | undefined, d = 2): string {
-  if (v == null || Number.isNaN(v)) return "—";
-  const sign = v < 0 ? "−" : v > 0 ? "+" : "";
+  if (v == null || Number.isNaN(v)) return "--";
+  const sign = v < 0 ? "-" : v > 0 ? "+" : "";
   return `${sign}${Math.abs(v).toFixed(d)}%`;
 }
 
 export function fmtProb(v: number | null | undefined, d = 4): string {
-  if (v == null || Number.isNaN(v)) return "—";
+  if (v == null || Number.isNaN(v)) return "--";
   return v.toFixed(d);
 }
 
 export function fmtRatio(v: number | null | undefined, d = 3): string {
-  if (v == null || Number.isNaN(v)) return "—";
+  if (v == null || Number.isNaN(v)) return "--";
   return v.toFixed(d);
 }
 
 export function fmtDuration(seconds: number | null | undefined): string {
-  if (seconds == null || Number.isNaN(seconds)) return "—";
+  if (seconds == null || Number.isNaN(seconds)) return "--";
   const s = Math.max(0, Math.floor(seconds));
   const m = Math.floor(s / 60);
   const r = s % 60;
@@ -35,7 +35,7 @@ export function pnlColor(v: number | null | undefined): string {
   return "text-slate-300";
 }
 
-// ──────── Local time (Europe/Paris — CET/CEST; same as Amsterdam). ────────
+// Local time (Europe/Paris, CET/CEST; same as Amsterdam).
 // Intl handles DST automatically.
 const TZ = "Europe/Paris";
 
@@ -47,7 +47,7 @@ function _toDate(ts: number | string | Date | null | undefined): Date | null {
 
 export function fmtLocalHM(ts: number | string | Date | null | undefined): string {
   const d = _toDate(ts);
-  if (!d) return "—";
+  if (!d) return "--";
   return d.toLocaleTimeString("en-GB", {
     hour12: false,
     timeZone: TZ,
@@ -58,7 +58,7 @@ export function fmtLocalHM(ts: number | string | Date | null | undefined): strin
 
 export function fmtLocalHMS(ts: number | string | Date | null | undefined): string {
   const d = _toDate(ts);
-  if (!d) return "—";
+  if (!d) return "--";
   return d.toLocaleTimeString("en-GB", {
     hour12: false,
     timeZone: TZ,
@@ -70,7 +70,7 @@ export function fmtLocalHMS(ts: number | string | Date | null | undefined): stri
 
 export function fmtLocalDate(ts: number | string | Date | null | undefined): string {
   const d = _toDate(ts);
-  if (!d) return "—";
+  if (!d) return "--";
   return d.toLocaleDateString("en-GB", {
     timeZone: TZ,
     month: "2-digit",
@@ -80,7 +80,7 @@ export function fmtLocalDate(ts: number | string | Date | null | undefined): str
 
 export function fmtLocalFull(ts: number | string | Date | null | undefined): string {
   const d = _toDate(ts);
-  if (!d) return "—";
+  if (!d) return "--";
   return d.toLocaleString("en-GB", {
     timeZone: TZ,
     year: "numeric",
@@ -108,7 +108,7 @@ export function fmtLocalDateTimeSeconds(
   ts: number | string | Date | null | undefined,
 ): string {
   const d = _toDate(ts);
-  if (!d) return "â€”";
+  if (!d) return "--";
   const parts = PARIS_DATETIME_FMT.formatToParts(d);
   const pick = (type: Intl.DateTimeFormatPartTypes) =>
     parts.find((p) => p.type === type)?.value ?? "";
@@ -122,7 +122,7 @@ const PARIS_DATE_FMT = new Intl.DateTimeFormat("en-CA", {
   day: "2-digit",
 });
 
-// YYYY-MM-DD key in Europe/Paris — used to group trades into the local calendar
+// YYYY-MM-DD key in Europe/Paris, used to group trades into the local calendar
 // day regardless of DST. Returns empty string for invalid input.
 export function parisDateKey(ts: number | string | Date | null | undefined): string {
   const d = _toDate(ts);
@@ -145,7 +145,7 @@ export function parisUtcOffset(now: Date = new Date()): string {
 
 // Returns the currently-active Europe/Paris abbreviation ("CET" or "CEST").
 // V8's Intl short name returns "GMT+2" instead of "CEST" for this zone, so
-// derive it from the offset — Europe/Paris only ever has these two states.
+// derive it from the offset. Europe/Paris only ever has these two states.
 export function parisTzAbbrev(now: Date = new Date()): string {
   const offset = parisUtcOffset(now);
   if (offset === "UTC+2") return "CEST";

@@ -56,8 +56,8 @@ class Settings(BaseSettings):
     # empty the probe silently falls back to local-only measurement.
     vps_host: str = ""
     vps_user: str = "ubuntu"
-    vps_label: str = "VPS Tokyo"
-    vps_ssh_key: Path = Field(default=Path("vps_infos/lighter.pem"))
+    vps_label: str = "VPS"
+    vps_ssh_key: Path = Field(default=Path("vps_infos/vps.pem"))
     vps_dir: str = "/opt/btc_pricer_15m_live"
     polymarket_probe_interval_seconds: float = 30.0
 

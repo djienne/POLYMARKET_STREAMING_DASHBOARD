@@ -2,7 +2,7 @@ import { useDash } from "../lib/store";
 
 // Small chip next to CpuStatus showing where the live trader is running and
 // the Polymarket latency measured from that side. Never surfaces host/IP —
-// only a friendly label from the backend (e.g. "VPS Tokyo", "local").
+// only a friendly label from the backend (e.g. "VPS", "local").
 export default function LocationChip() {
   const liveness = useDash((s) => s.liveness);
   const loc = liveness?.execution_location ?? null;
@@ -11,7 +11,7 @@ export default function LocationChip() {
 
   if (!loc && pingMs == null) {
     return (
-      <span className="chip chip-mute font-mono w-[176px] min-w-[176px] items-center gap-1.5 pl-2 pr-1">
+      <span className="chip chip-mute font-mono items-center gap-1.5 px-2">
         <span className="text-slate-500">loc</span>
         <span className="text-slate-300">--</span>
       </span>
@@ -44,7 +44,7 @@ export default function LocationChip() {
 
   return (
     <span
-      className="chip chip-mute font-mono w-[182px] min-w-[182px] items-center gap-3 pl-2 pr-1"
+      className="chip chip-mute font-mono items-center gap-2 px-2"
       title={
         pingMs != null
           ? `Polymarket CLOB latency measured from ${displayLabel}: ${pingMs.toFixed(0)} ms`
@@ -56,7 +56,7 @@ export default function LocationChip() {
         <span className="text-slate-300 whitespace-nowrap">{displayLabel}</span>
       </span>
       {pingMs != null && (
-        <span className={`${pingClass} inline-flex w-[44px] justify-end shrink-0`}>
+        <span className={`${pingClass} inline-flex shrink-0 tabular-nums`}>
           {pingMs.toFixed(0)}ms
         </span>
       )}

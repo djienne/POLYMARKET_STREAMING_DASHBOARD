@@ -6,7 +6,12 @@ import {
   parisUtcOffset,
 } from "../lib/format";
 
-function timingSourceLabel(source: string | null | undefined): string | null {
+function timingSourceLabel(
+  source: string | null | undefined,
+  executionLocation: string | null | undefined,
+): string | null {
+  if (executionLocation === "local") return "local";
+  if (executionLocation === "vps") return "remote";
   if (!source) return null;
   if (source === "local_offload") return "remote";
   if (source === "vps_local") return "vps";
@@ -24,7 +29,7 @@ export default function Footer() {
     terminalTiming?.calibration_s != null
       ? terminalTiming
       : cal.last_timing;
-  const usedSource = timingSourceLabel(t?.used_source);
+  const usedSource = timingSourceLabel(t?.used_source, live?.execution_location);
   const [now, setNow] = useState(() => new Date());
 
   useEffect(() => {
@@ -69,15 +74,15 @@ export default function Footer() {
             Europe/Paris - {tzOffset}
             {tzAbbrev && ` (${tzAbbrev})`}
           </span>
-          <span className="text-slate-500"> {" "}·{" "}</span>
+          <span className="text-slate-500"> {" "}/{" "}</span>
           <span className="text-slate-300 normal-case tracking-normal">
             {nowLabel}
           </span>
-          <span className="text-slate-500"> {" "}·{" "}</span>
+          <span className="text-slate-500"> {" "}/{" "}</span>
           <span className="text-slate-400 normal-case tracking-normal">
             most trading activity occurs between 15:00 and 05:00 CEST the next day
           </span>
-          <span className="text-slate-500"> {" "}·{" "}</span>
+          <span className="text-slate-500"> {" "}/{" "}</span>
           <span
             className={`normal-case tracking-normal ${
               isHighActivityPeriod ? "text-emerald-300" : "text-amber-300"

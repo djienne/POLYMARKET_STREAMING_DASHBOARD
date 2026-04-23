@@ -108,12 +108,11 @@ function mergeTimingInfo(
   if (!incoming) return prev ?? null;
   return {
     ...incoming,
-    used_gap_s:
-      incoming.used_gap_s != null ? incoming.used_gap_s : (prev?.used_gap_s ?? null),
-    used_source:
-      incoming.used_source != null
-        ? incoming.used_source
-        : (prev?.used_source ?? null),
+    // Do not carry source/cadence labels across timing payloads. A local,
+    // non-hybrid calibration often omits them; preserving the old values would
+    // keep showing stale "remote" or cadence after switching back from VPS.
+    used_gap_s: incoming.used_gap_s ?? null,
+    used_source: incoming.used_source ?? null,
   };
 }
 
