@@ -27,6 +27,7 @@ export default function InstanceStatsCard() {
         }
       : null);
 
+  const cagrUnavailable = "--";
   const { firstTs, daysLive, cagrDisplay, cagrPositive } = useMemo(() => {
     const candidates: number[] = [];
     if (equitySeries.length > 0) {
@@ -39,21 +40,44 @@ export default function InstanceStatsCard() {
     }
     const first = candidates.length > 0 ? Math.min(...candidates) : null;
     if (first == null || !inst) {
-      return { firstTs: null, daysLive: null, cagrDisplay: "—", cagrPositive: true };
+      return {
+        firstTs: null,
+        daysLive: null,
+        cagrDisplay: cagrUnavailable,
+        cagrPositive: true,
+      };
     }
     const days = Math.max(0, (Date.now() - first) / 86_400_000);
     const start = inst.starting_capital;
     const capital = inst.capital;
     if (days < 1 || start <= 0 || !Number.isFinite(capital) || capital <= 0) {
-      return { firstTs: first, daysLive: days, cagrDisplay: "—", cagrPositive: true };
+      return {
+        firstTs: first,
+        daysLive: days,
+        cagrDisplay: cagrUnavailable,
+        cagrPositive: true,
+      };
     }
     const years = days / 365;
     const totalReturn = capital / start;
     const cagr = Math.pow(totalReturn, 1 / years) - 1;
     if (!Number.isFinite(cagr)) {
-      return { firstTs: first, daysLive: days, cagrDisplay: "—", cagrPositive: true };
+      return {
+        firstTs: first,
+        daysLive: days,
+        cagrDisplay: cagrUnavailable,
+        cagrPositive: true,
+      };
     }
     const pct = cagr * 100;
+    if (pct <= -90) {
+      return {
+        firstTs: first,
+        daysLive: days,
+        cagrDisplay: cagrUnavailable,
+        cagrPositive: true,
+      };
+    }
     const display =
       pct > 1000 ? ">1000%" : pct < -1000 ? "<-1000%" : fmtPct(pct, 1);
     return {
@@ -122,14 +146,18 @@ export default function InstanceStatsCard() {
     {
       label: "Days",
       value: daysLive != null ? `${daysLive.toFixed(1)}d` : "0.0d",
-      sub: `started ${new Date(firstTs ?? Date.now()).toLocaleDateString("en-GB", { day: "2-digit", month: "2-digit", year: "numeric" })}`,
+      sub: `started ${new Date(firstTs ?? Date.now()).toLocaleDateString("en-GB", {
+        day: "2-digit",
+        month: "2-digit",
+        year: "numeric",
+      })}`,
     },
     {
       label: "CAGR",
       value: cagrDisplay,
       sub: "annualized",
       color:
-        cagrDisplay === "—"
+        cagrDisplay === cagrUnavailable
           ? "text-slate-100"
           : cagrPositive
             ? "text-emerald-300"
@@ -138,7 +166,8 @@ export default function InstanceStatsCard() {
   ];
 
   const todayClosed = today.wins + today.losses;
-  const todayWinRate = todayClosed > 0 ? (today.wins / todayClosed) * 100 : null;
+  const todayWinRate =
+    todayClosed > 0 ? (today.wins / todayClosed) * 100 : null;
   const todayTiles = [
     {
       label: "PnL $",
@@ -264,40 +293,44 @@ export default function InstanceStatsCard() {
       <SectionHeader label="All time" tone="slate" />
       <div className="rounded-xl border border-ink-800/70 bg-[linear-gradient(180deg,rgba(15,23,42,0.26),rgba(15,23,42,0.10))] px-2.5 py-2 mb-1.5">
         <div className="grid grid-cols-8 gap-1.5">
-        {tiles.map((t) => (
-          <div key={t.label}>
-            <div className="stat-label">{t.label}</div>
-            <div className={`font-mono text-[15px] leading-tight ${t.color ?? "text-slate-100"}`}>
-              {t.value}
-            </div>
-            {t.sub && (
-              <div className="text-[9px] leading-tight text-slate-500 font-mono">
-                {t.sub}
+          {tiles.map((t) => (
+            <div key={t.label}>
+              <div className="stat-label">{t.label}</div>
+              <div
+                className={`font-mono text-[15px] leading-tight ${t.color ?? "text-slate-100"}`}
+              >
+                {t.value}
               </div>
-            )}
-          </div>
-        ))}
+              {t.sub && (
+                <div className="text-[9px] leading-tight text-slate-500 font-mono">
+                  {t.sub}
+                </div>
+              )}
+            </div>
+          ))}
         </div>
       </div>
 
       <SectionHeader label="Today" tone="cyan" />
       <div className="rounded-xl border border-cyan-500/12 bg-[linear-gradient(180deg,rgba(8,145,178,0.08),rgba(15,23,42,0.10))] px-2.5 py-2 mb-1.5">
         <div className="grid grid-cols-4 gap-1.5">
-        {todayTiles.map((t) => (
-          <div key={t.label}>
-            <div className="text-[10px] uppercase tracking-wider text-slate-500">
-              {t.label}
-            </div>
-            <div className={`font-mono text-[15px] leading-tight ${t.color ?? "text-slate-100"}`}>
-              {t.value}
-            </div>
-            {t.sub && (
-              <div className="text-[9px] leading-tight text-slate-500 font-mono">
-                {t.sub}
+          {todayTiles.map((t) => (
+            <div key={t.label}>
+              <div className="text-[10px] uppercase tracking-wider text-slate-500">
+                {t.label}
               </div>
-            )}
-          </div>
-        ))}
+              <div
+                className={`font-mono text-[15px] leading-tight ${t.color ?? "text-slate-100"}`}
+              >
+                {t.value}
+              </div>
+              {t.sub && (
+                <div className="text-[9px] leading-tight text-slate-500 font-mono">
+                  {t.sub}
+                </div>
+              )}
+            </div>
+          ))}
         </div>
       </div>
 
@@ -312,14 +345,22 @@ export default function InstanceStatsCard() {
   );
 }
 
-function SectionHeader({ label, tone }: { label: string; tone: "slate" | "cyan" }) {
+function SectionHeader({
+  label,
+  tone,
+}: {
+  label: string;
+  tone: "slate" | "cyan";
+}) {
   const textCls = tone === "cyan" ? "text-cyan-200" : "text-slate-300";
   const dotCls = tone === "cyan" ? "bg-cyan-300" : "bg-slate-400";
   const lineCls = tone === "cyan" ? "bg-cyan-500/30" : "bg-ink-700";
   return (
     <div className="flex items-center gap-2 mb-1 mt-0.5">
       <span className={`inline-block w-1.5 h-1.5 rounded-full ${dotCls}`} />
-      <span className={`font-semibold uppercase tracking-[0.18em] text-[11px] ${textCls}`}>
+      <span
+        className={`font-semibold uppercase tracking-[0.18em] text-[11px] ${textCls}`}
+      >
         {label}
       </span>
       <div className={`flex-1 h-px ${lineCls}`} />
