@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import subprocess
 import time
 from dataclasses import dataclass
 from pathlib import Path
@@ -26,6 +27,7 @@ from typing import Optional
 import httpx
 
 from ..config import settings
+from .subprocess_utils import run_subprocess
 
 log = logging.getLogger(__name__)
 
@@ -195,18 +197,8 @@ class LocationProbe:
             remote_cmd,
         ]
         try:
-            proc = await asyncio.create_subprocess_exec(
-                *cmd,
-                stdout=asyncio.subprocess.PIPE,
-                stderr=asyncio.subprocess.PIPE,
-            )
-            try:
-                stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=15)
-            except asyncio.TimeoutError:
-                proc.kill()
-                await proc.wait()
-                log.debug("vps probe timed out")
-                return
+            proc = await run_subprocess(cmd, timeout=15)
+            stdout, stderr = proc.stdout, proc.stderr
             if proc.returncode != 0:
                 log.debug("vps probe rc=%s err=%s", proc.returncode, stderr.decode()[:200])
                 return
@@ -225,6 +217,8 @@ class LocationProbe:
                     )
                 except ValueError:
                     log.debug("vps cpu parse error: %r", lines[1])
+        except (FileNotFoundError, subprocess.TimeoutExpired) as exc:
+            log.debug("vps probe failed: %s", exc)
         except Exception as exc:  # noqa: BLE001
             log.debug("vps probe failed: %s", exc)
 

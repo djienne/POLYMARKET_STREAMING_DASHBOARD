@@ -10,6 +10,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import re
+import subprocess
 from collections import deque
 from datetime import datetime, timezone
 from typing import Deque, Optional
@@ -17,6 +18,7 @@ from typing import Deque, Optional
 from ..config import settings
 from ..events.bus import bus
 from ..time_utils import iso_to_unix
+from .subprocess_utils import run_subprocess
 
 log = logging.getLogger(__name__)
 
@@ -163,13 +165,9 @@ class DockerLogTail:
             self.container,
         ]
         try:
-            proc = await asyncio.create_subprocess_exec(
-                *cmd,
-                stdout=asyncio.subprocess.PIPE,
-                stderr=asyncio.subprocess.PIPE,
-            )
-            stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=8)
-        except (FileNotFoundError, asyncio.TimeoutError) as e:
+            proc = await run_subprocess(cmd, timeout=8)
+            stdout, stderr = proc.stdout, proc.stderr
+        except (FileNotFoundError, subprocess.TimeoutExpired) as e:
             log.warning("docker logs disabled: %s", e)
             self._disabled = True
             return False
