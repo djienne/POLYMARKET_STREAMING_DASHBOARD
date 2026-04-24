@@ -115,25 +115,31 @@ export default function InstanceStatsCard() {
   };
   const hasTrades = view.trades_count > 0;
 
-  // Realized PnL = realizedCapital - starting. Matches the Capital tile,
-  // which ignores the currently-open position's notional dip.
-  const realizedPnl = realizedCapital - view.starting_capital;
-  const realizedPnlPct =
+  // Capital + Total PnL source the on-chain USDC balance the trader fetches
+  // from Polygon RPC (state.json.capital.current → inst.capital). That's
+  // what Polymarket shows; during an open position it legitimately dips
+  // by the cost_basis because USDC is briefly tied up as shares. Earlier
+  // commit routed these through equitySeries to hide the dip, but that
+  // broke the Polymarket-truth invariant — user sees a $2+ mismatch with
+  // the Polymarket UI. CAGR keeps using realizedCapital below so the
+  // long-horizon return signal doesn't flicker on every trade.
+  const usdcPnl = view.capital - view.starting_capital;
+  const usdcPnlPct =
     view.starting_capital > 0
-      ? (realizedPnl / view.starting_capital) * 100
+      ? (usdcPnl / view.starting_capital) * 100
       : 0;
 
   const tiles = [
     {
       label: "Capital",
-      value: `$${realizedCapital.toFixed(2)}`,
+      value: `$${view.capital.toFixed(2)}`,
       sub: `start $${view.starting_capital.toFixed(2)}`,
     },
     {
       label: "Total PnL",
-      value: fmtMoney(realizedPnl),
-      sub: fmtPct(realizedPnlPct),
-      color: realizedPnl >= 0 ? "text-emerald-300" : "text-rose-300",
+      value: fmtMoney(usdcPnl),
+      sub: fmtPct(usdcPnlPct),
+      color: usdcPnl >= 0 ? "text-emerald-300" : "text-rose-300",
     },
     {
       label: "Sharpe",
@@ -223,7 +229,7 @@ export default function InstanceStatsCard() {
 
   const orderSizePct = shared.order_size_pct ?? null;
   const orderSizeUsd =
-    orderSizePct != null ? realizedCapital * orderSizePct : null;
+    orderSizePct != null ? view.capital * orderSizePct : null;
 
   const paramTiles: ParamTile[] = params
     ? [
