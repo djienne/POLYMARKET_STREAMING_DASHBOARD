@@ -8,6 +8,7 @@ detached subprocess when the sync loop is running
 from __future__ import annotations
 
 import os
+import base64
 import json
 import shutil
 import subprocess
@@ -531,19 +532,8 @@ def _guard_against_history_regression(
         )
 
 
-def _pull_one_file(profile: VpsProfile, name: str, *, required: bool) -> bool:
-    remote_path = f"{profile.directory}/results/{name}"
+def _write_pulled_file(profile: VpsProfile, name: str, content: bytes) -> bool:
     local_path = RESULTS_DIR / name
-
-    rc, content = _ssh_cat(profile, remote_path)
-
-    if rc == 44:
-        if required:
-            log(f"required remote state file missing; preserving local {name}", prefix="live")
-        return not required
-
-    if rc != 0:
-        return False
 
     if name == "15m_live_state.json":
         remote_count = _closed_position_count_from_bytes(content)
@@ -572,8 +562,82 @@ def _pull_one_file(profile: VpsProfile, name: str, *, required: bool) -> bool:
     return True
 
 
+def _pull_one_file(profile: VpsProfile, name: str, *, required: bool) -> bool:
+    remote_path = f"{profile.directory}/results/{name}"
+    rc, content = _ssh_cat(profile, remote_path)
+
+    if rc == 44:
+        if required:
+            log(f"required remote state file missing; preserving local {name}", prefix="live")
+        return not required
+
+    if rc != 0:
+        return False
+
+    return _write_pulled_file(profile, name, content)
+
+
+def _pull_files_batched(profile: VpsProfile, names: tuple[str, ...]) -> Optional[dict[str, bytes | None]]:
+    names_json = json.dumps(list(names), separators=(",", ":"))
+    remote = "\n".join(
+        [
+            "python3 - <<'PY'",
+            "import base64, json, pathlib",
+            f"root = pathlib.Path({profile.directory!r}) / 'results'",
+            f"names = json.loads({names_json!r})",
+            "out = {}",
+            "for name in names:",
+            "    path = root / name",
+            "    try:",
+            "        out[name] = {'ok': True, 'data': base64.b64encode(path.read_bytes()).decode('ascii')}",
+            "    except FileNotFoundError:",
+            "        out[name] = {'ok': False, 'missing': True}",
+            "    except OSError as exc:",
+            "        out[name] = {'ok': False, 'error': str(exc)}",
+            "print(json.dumps(out, separators=(',', ':')))",
+            "PY",
+        ]
+    )
+    result = ssh_run(profile, remote, capture=True, timeout=SYNC_SSH_TIMEOUT_S)
+    if result.returncode != 0:
+        return None
+    try:
+        raw = json.loads(result.stdout)
+    except json.JSONDecodeError:
+        return None
+    pulled: dict[str, bytes | None] = {}
+    for name in names:
+        entry = raw.get(name)
+        if not isinstance(entry, dict) or not entry.get("ok"):
+            pulled[name] = None
+            continue
+        try:
+            pulled[name] = base64.b64decode(str(entry.get("data") or ""), validate=True)
+        except (ValueError, TypeError):
+            return None
+    return pulled
+
+
 def _pull_all_files_once(profile: VpsProfile) -> bool:
     RESULTS_DIR.mkdir(parents=True, exist_ok=True)
+    names = (*REQUIRED_STATE_FILES, *OPTIONAL_STATE_FILES)
+    pulled = _pull_files_batched(profile, names)
+    if pulled is not None:
+        ok = True
+        required = set(REQUIRED_STATE_FILES)
+        for name in names:
+            content = pulled.get(name)
+            if content is None:
+                if name in required:
+                    log(f"required remote state file missing; preserving local {name}", prefix="live")
+                    ok = False
+                continue
+            if not _write_pulled_file(profile, name, content):
+                ok = False
+        return ok
+
+    # Fallback for hosts without python3/base64 support or transient parse
+    # failures. This is slower because it opens one SSH session per file.
     ok = True
     for name in REQUIRED_STATE_FILES:
         if not _pull_one_file(profile, name, required=True):

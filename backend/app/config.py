@@ -35,7 +35,7 @@ class Settings(BaseSettings):
     backend_host: str = "127.0.0.1"
     backend_port: int = 8799
 
-    poll_interval_seconds: float = 2.0
+    poll_interval_seconds: float = 0.5
     # Dominant source of entry-marker latency — stat is cheap, no reason
     # to wait 5 s. At 1 s the entry event surfaces ~1-2 s after the trader
     # fill instead of up to 7 s, so the marker no longer lands visibly in
