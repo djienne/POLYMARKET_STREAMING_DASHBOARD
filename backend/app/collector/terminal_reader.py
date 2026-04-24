@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import subprocess
 import time
 from collections import deque
 from datetime import datetime, timezone
@@ -160,32 +161,105 @@ def _merge_timing(
     )
 
 
+def _is_vps_live() -> bool:
+    return _vps_profile_name_if_live() is not None
+
+
+def _vps_profile_name_if_live() -> Optional[str]:
+    if settings.mode != "live":
+        return None
+    try:
+        location = settings.live_location_path().read_text(encoding="utf-8").strip().lower()
+    except OSError:
+        return None
+    if location == "vps":
+        return ""
+    if location.startswith("vps:"):
+        return location.split(":", 1)[1].strip()
+    return None
+
+
+def _looks_like_local_grid_payload(raw: dict) -> bool:
+    timing = raw.get("timing") or {}
+    return timing.get("used_source") is None and timing.get("used_gap_s") is None
+
+
+def _is_configured_terminal_path(path: Path) -> bool:
+    try:
+        return path.resolve() == settings.terminal_path().resolve()
+    except OSError:
+        return False
+
+
 class TerminalReader:
     def __init__(self, path: Path) -> None:
         self.path = path
         self._last_mtime: Optional[float] = None
+        self._last_observed_mtime: Optional[float] = None
         self._last: Optional[TerminalSnapshot] = None
+        self._last_remote_attempt = 0.0
+        self._remote_poll_interval_s = 5.0
         # Per-market model probability history (reset when slug changes)
         self._model_up: Deque[tuple[str, float]] = deque(maxlen=MAX_MODEL_POINTS)
         self._model_down: Deque[tuple[str, float]] = deque(maxlen=MAX_MODEL_POINTS)
         self._cur_slug: Optional[str] = None
 
-    def read_if_changed(self) -> Optional[TerminalSnapshot]:
+    def _read_remote_vps_terminal(self, *, force: bool = False) -> Optional[dict]:
+        now = time.monotonic()
+        if not force and now - self._last_remote_attempt < self._remote_poll_interval_s:
+            return None
+        self._last_remote_attempt = now
+
+        profile_name = _vps_profile_name_if_live()
+        if profile_name is None:
+            return None
+        profile = settings.vps_profile(profile_name)
+        if profile is None or not profile.ssh_key.exists():
+            return None
+
+        remote_path = f"{profile.dir}/results/terminal_data.json"
+        if "'" in remote_path:
+            return None
+        cmd = [
+            "ssh",
+            "-i",
+            str(profile.ssh_key),
+            "-o",
+            "StrictHostKeyChecking=no",
+            "-o",
+            "ConnectTimeout=6",
+            "-o",
+            "BatchMode=yes",
+            f"{profile.user}@{profile.host}",
+            f"cat '{remote_path}'",
+        ]
         try:
-            st = self.path.stat()
-        except FileNotFoundError:
+            proc = subprocess.run(
+                cmd,
+                capture_output=True,
+                check=False,
+                text=True,
+                timeout=8,
+            )
+        except (OSError, subprocess.SubprocessError) as exc:
+            log.debug("remote VPS terminal read failed: %s", exc)
             return None
-        if self._last_mtime is not None and st.st_mtime == self._last_mtime:
-            # still refresh age
-            if self._last is not None:
-                self._last.age_seconds = max(0.0, time.time() - st.st_mtime)
+        if proc.returncode != 0:
+            log.debug("remote VPS terminal read rc=%s err=%s", proc.returncode, proc.stderr[:200])
             return None
         try:
-            raw = json.loads(self.path.read_text(encoding="utf-8"))
-        except (OSError, json.JSONDecodeError) as e:
-            log.warning("terminal read failed: %s", e)
+            raw = json.loads(proc.stdout)
+        except json.JSONDecodeError as exc:
+            log.debug("remote VPS terminal parse failed: %s", exc)
             return None
-        snap = parse_terminal(raw, st.st_mtime)
+        return raw if isinstance(raw, dict) else None
+
+    def _record_snapshot(self, raw: dict, path_mtime: float) -> Optional[TerminalSnapshot]:
+        snap = parse_terminal(raw, path_mtime)
+        if self._last is not None and self._last.timestamp == snap.timestamp:
+            if self._last_observed_mtime is not None:
+                self._last.age_seconds = max(0.0, time.time() - self._last_observed_mtime)
+            return None
         prev_snap = None
         prev_timing = None
         if self._last is not None and self._last.market.slug == snap.market.slug:
@@ -194,10 +268,14 @@ class TerminalReader:
         snap.timing = _merge_timing(
             prev_timing,
             snap.timing,
-            _observed_gap_s(prev_snap, snap, self._last_mtime, st.st_mtime),
+            _observed_gap_s(prev_snap, snap, self._last_observed_mtime, path_mtime),
         )
-        self._last_mtime = st.st_mtime
+        self._last_observed_mtime = path_mtime
         self._last = snap
+        self._record_model_probabilities(snap)
+        return snap
+
+    def _record_model_probabilities(self, snap: TerminalSnapshot) -> None:
         # Record model probabilities for the current market (use avg = the one the bot uses).
         probs = snap.probabilities
         up = (
@@ -220,7 +298,41 @@ class TerminalReader:
                 self._model_up.append((ts, float(up)))
             if down is not None:
                 self._model_down.append((ts, float(down)))
-        return snap
+
+    def read_if_changed(self) -> Optional[TerminalSnapshot]:
+        try:
+            st = self.path.stat()
+        except FileNotFoundError:
+            return None
+        vps_live = _is_configured_terminal_path(self.path) and _is_vps_live()
+        if self._last_mtime is not None and st.st_mtime == self._last_mtime:
+            if vps_live:
+                raw = self._read_remote_vps_terminal()
+                if raw is not None:
+                    return self._record_snapshot(raw, time.time())
+            # still refresh age
+            if self._last is not None:
+                observed_mtime = self._last_observed_mtime or st.st_mtime
+                self._last.age_seconds = max(0.0, time.time() - observed_mtime)
+            return None
+        try:
+            raw = json.loads(self.path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError) as e:
+            log.warning("terminal read failed: %s", e)
+            return None
+        if vps_live and _looks_like_local_grid_payload(raw):
+            remote_raw = self._read_remote_vps_terminal(force=True)
+            if remote_raw is None:
+                self._last_mtime = st.st_mtime
+                log.debug("ignoring non-hybrid terminal_data.json while VPS live is active")
+                return None
+            raw = remote_raw
+            path_mtime = time.time()
+        else:
+            path_mtime = st.st_mtime
+
+        self._last_mtime = st.st_mtime
+        return self._record_snapshot(raw, path_mtime)
 
     def reset_history_if_new_slug(self, slug: Optional[str]) -> None:
         if slug and slug != self._cur_slug:

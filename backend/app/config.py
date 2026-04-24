@@ -17,6 +17,7 @@ class VpsProfile:
     user: str
     label: str
     ssh_key: Path
+    dir: str
 
 
 class Settings(BaseSettings):
@@ -137,6 +138,7 @@ class Settings(BaseSettings):
         key_match = re.search(r"use key:\s*([^\r\n]+)", text, flags=re.IGNORECASE)
         label_match = re.search(r"label:\s*([^\r\n]+)", text, flags=re.IGNORECASE)
         user_match = re.search(r"user:\s*([^\r\n]+)", text, flags=re.IGNORECASE)
+        dir_match = re.search(r"dir:\s*([^\r\n]+)", text, flags=re.IGNORECASE)
         if host_match is None:
             return None
         ssh_key = (
@@ -153,12 +155,14 @@ class Settings(BaseSettings):
             else self._friendly_vps_label(name)
         )
         user = user_match.group(1).strip() if user_match is not None else self.vps_user
+        vps_dir = dir_match.group(1).strip() if dir_match is not None else self.vps_dir
         return VpsProfile(
             name=name,
             host=host_match.group(1),
             user=user,
             label=label,
             ssh_key=ssh_key,
+            dir=vps_dir,
         )
 
     def vps_profile(self, profile_name: Optional[str] = None) -> Optional[VpsProfile]:
@@ -181,6 +185,7 @@ class Settings(BaseSettings):
                 user=self.vps_user,
                 label=self.vps_label,
                 ssh_key=ssh_key,
+                dir=self.vps_dir,
             )
         path = self._resolve(Path("vps_infos") / f"{normalized}.txt")
         if not path.exists():

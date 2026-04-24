@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import shlex
 import subprocess
 import time
 from dataclasses import dataclass
@@ -27,6 +28,35 @@ from ..config import settings
 from .subprocess_utils import run_subprocess
 
 log = logging.getLogger(__name__)
+
+
+REMOTE_VPS_PROBE_SCRIPT = r"""
+import subprocess
+import sys
+import time
+
+
+def cpu():
+    with open('/proc/stat', 'r', encoding='utf-8') as f:
+        parts = f.readline().split()
+    values = [int(v) for v in parts[1:]]
+    idle = values[3] + (values[4] if len(values) > 4 else 0)
+    total = sum(values)
+    return idle, total
+
+
+url = sys.argv[1]
+ib, tb = cpu()
+out = subprocess.check_output(
+    ['curl', '-o', '/dev/null', '-s', '-w', '%{time_total}\n', url],
+    text=True,
+).strip()
+print(out)
+time.sleep(0.5)
+ia, ta = cpu()
+dt = ta - tb
+print(f'{100 * (1 - (ia - ib) / dt):.1f}' if dt > 0 else '')
+"""
 
 
 @dataclass
@@ -162,28 +192,8 @@ class LocationProbe:
         if not key.exists():
             log.debug("vps ssh key not found: %s", key)
             return
-        remote_cmd = (
-            "python3 - <<'PY'\n"
-            "import subprocess, time\n"
-            "def cpu():\n"
-            "    with open('/proc/stat', 'r', encoding='utf-8') as f:\n"
-            "        parts = f.readline().split()\n"
-            "    values = [int(v) for v in parts[1:]]\n"
-            "    idle = values[3] + (values[4] if len(values) > 4 else 0)\n"
-            "    total = sum(values)\n"
-            "    return idle, total\n"
-            "ib, tb = cpu()\n"
-            f"out = subprocess.check_output(['curl', '-o', '/dev/null', '-s', '-w', '%{{time_total}}\\\\n', '{settings.polymarket_clob_url}/markets?limit=1'], text=True).strip()\n"
-            "print(out)\n"
-            "time.sleep(0.5)\n"
-            "ia, ta = cpu()\n"
-            "dt = ta - tb\n"
-            "if dt > 0:\n"
-            "    print(f'{100 * (1 - (ia - ib) / dt):.1f}')\n"
-            "else:\n"
-            "    print('')\n"
-            "PY"
-        )
+        url = f"{settings.polymarket_clob_url}/markets?limit=1"
+        remote_cmd = f"python3 - {shlex.quote(url)} <<'PY'\n{REMOTE_VPS_PROBE_SCRIPT}\nPY"
         cmd = [
             "ssh",
             "-i", str(key),
@@ -234,14 +244,14 @@ probe = LocationProbe()
 
 
 async def run_location_probe_loop(stop: asyncio.Event) -> None:
-    """Measure both local and VPS (if configured) each cycle."""
+    """Measure Polymarket latency from the currently active execution side."""
     interval = settings.polymarket_probe_interval_seconds
     while not stop.is_set():
         try:
-            await probe.measure_local()
-            # Only probe VPS if we know live is there, to avoid unnecessary SSH.
             if probe.read_location() == "vps":
                 await probe.measure_vps()
+            else:
+                await probe.measure_local()
         except Exception:  # noqa: BLE001
             log.exception("location probe iteration failed")
         try:

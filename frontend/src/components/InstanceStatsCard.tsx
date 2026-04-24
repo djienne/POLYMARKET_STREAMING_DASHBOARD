@@ -280,9 +280,9 @@ export default function InstanceStatsCard() {
                 {" · "}
                 <span
                   className="text-amber-300/80"
-                  title="Backtested trade rate on the live parameter set (aU=2.5 aD=1.8 fU=0.45 fD=0.65 tp=0.3 sl=0.2)"
+                  title="Live parameters are read from the active trader config"
                 >
-                  from backtest, expect ~7 trades per day
+                  live parameter set active
                 </span>
               </span>
             )}

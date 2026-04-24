@@ -21,10 +21,16 @@ BTC_pricer_15m_*_work_*/
 ps_patch/
 obs/
 results/
+runtime/
+logs/
 *.patch
 .codex_commit_index_*
 title_description.txt
 vps_vs_local_latency_ssvi_summary.md
+*_pytest_runner*/
+*_pytest_base/
+python_write_test/
+python_mkdir_700/
 
 # ad-hoc local media; tracked assets are unaffected
 *.png

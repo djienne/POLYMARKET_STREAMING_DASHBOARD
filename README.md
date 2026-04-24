@@ -1,22 +1,19 @@
 # Polymarket Streaming Dashboard
 
-Real-time dashboard for the `BTC_pricer_15m` Polymarket bot running in Docker. Shows, for any
-chosen dry-run parameter set (default: leaderboard rank 7, instance `#773` — `aU=2.5 aD=1.8
-fU=0.45 fD=0.65 tp=0.3 sl=0.2`):
+Real-time dashboard and Windows-friendly manager for the sibling
+`../BTC_pricer_15m/` Polymarket bot.
 
-- Model probabilities — SSVI surface (BL-style), SSVI + Monte Carlo, Heston if computed, and
-  the average — both UP and DOWN.
-- Polymarket market-implied probabilities (from the CLOB mid).
-- **Current edge ratio** and the **required edge ratio** for the instance's α/floor, with margin.
-- Current market info: spot, barrier, direction, TTM.
-- 15-min window timer with blocked/tradeable zones.
-- Position state (flat / open, entry, TP/SL) and a live-trading grace-period badge.
-- Instance performance: capital, PnL, Sharpe, max DD, win rate, rank, equity curve.
-- Trade feed with animated entry/win/loss bursts.
-- Leaderboard top 15 — click to focus a different instance.
-- "Calculating new calibration…" indicator when a SSVI/MC cycle is running.
+The dashboard shows the selected dry-run parameter set or the active live trader:
 
-Locked to a 16:9 frame for clean OBS capture at 1920×1080.
+- Model probabilities from SSVI / Monte Carlo / optional Heston outputs.
+- Polymarket market-implied probabilities from the CLOB book.
+- Current edge ratio and required edge ratio for the active alpha/floor params.
+- Current 15-minute market, BTC spot, barrier, direction, and time to expiry.
+- Position state, TP/SL levels, grace-period status, and live/paper mode.
+- Performance, equity curve, recent trades, and leaderboard in dry-run mode.
+- Calibration status and the time between usable model updates.
+
+The UI is locked to a 16:9 frame for clean OBS capture at 1920x1080.
 
 <p align="center">
   <img src="screen.png" alt="Polymarket Streaming Dashboard screenshot" width="1100" />
@@ -24,70 +21,122 @@ Locked to a 16:9 frame for clean OBS capture at 1920×1080.
 
 ## Prerequisites
 
-- The bot in `../BTC_pricer_15m/` is running (Docker `btc_pricer_15m_grid` or otherwise)
-  and producing files under `results/` (`state_snapshot.json`, `trades.csv`, `terminal_data.json`,
-  `leaderboard.csv`, `15m_orderbook.csv`, `trader.lock`).
-- Python 3.10+ and Node 20+.
+- Windows PowerShell.
+- Docker Desktop available from Windows PowerShell.
+- Python 3.10+ for the dashboard backend.
+- Node 20+ for the Vite frontend.
+- The sibling bot checkout at `../BTC_pricer_15m/`.
 
-## Quick start
+For BTC bot development and tests, always use the `btc_pricer` conda
+environment. The dashboard manager itself can run with the normal Windows
+Python used by this repository.
 
-```bash
-# 1. Backend
-cd backend
-python -m pip install fastapi "uvicorn[standard]" pydantic pydantic-settings python-dotenv
-cp ../.env.example .env   # default paths assume sibling ../BTC_pricer_15m
+## Quick Start
 
-# 2. Frontend
-cd ../frontend
-npm install
+From this dashboard folder:
 
-# 3. Run both (from project root)
-./scripts/run_dev.sh
+```powershell
+python .\manage.py start
+python .\manage.py status
 ```
 
-- Backend: http://127.0.0.1:8799 (`/api/bootstrap`, `/api/instances`, `/ws`)
-- Frontend: http://127.0.0.1:5174
+Open <http://127.0.0.1:5174>.
 
-The dev script uses ports **8799** and **5174** to avoid clashing with the sibling
-`STREAMING_LIVE_PASSIBOT` dashboard (8787 / 5173).
+`manage.py start` starts the 864-instance paper grid plus hidden dashboard
+backend/frontend processes. Closing the terminal does not stop the dashboard.
+Use this when you only want to restart the dashboard UI/API without touching the
+grid:
 
-## Production / OBS capture
-
-```bash
-./scripts/run_prod.sh
+```powershell
+python .\manage.py restart --no-grid
 ```
 
-Builds `frontend/` to `frontend/dist/`, then launches uvicorn which serves the static bundle
-and API together on http://127.0.0.1:8799.
+Compatibility wrappers call the same Python manager:
 
-## Switching to live mode
+```powershell
+.\start.ps1
+.\status.ps1
+.\restart.ps1 --no-grid
+.\stop.ps1
+```
 
-```bash
-# In .env
+Explorer-friendly `.bat` wrappers are also present.
+
+Ports:
+
+- Backend/API/WebSocket: <http://127.0.0.1:8799>
+- Frontend: <http://127.0.0.1:5174>
+
+Logs are written under `logs/`; PID files are written under `runtime/`.
+
+## Live Location
+
+The dashboard stays local. Only the single live trader can move between local
+execution and the configured VPS.
+
+```powershell
+python .\manage.py live status
+python .\manage.py live local
+python .\manage.py live vps
+python .\manage.py live stop
+```
+
+`live vps` currently targets the Ireland profile in `vps_infos/infos.txt`.
+The old US East VPS was deleted and should not be used. The 864-instance dry-run
+grid remains local.
+
+When live is on the VPS:
+
+- The VPS container executes real orders and writes live state.
+- A local sync loop mirrors live state back into `../BTC_pricer_15m/results/`
+  for the dashboard.
+- A local offload container can send fast local calibration/probability events
+  into the VPS `results/calibration_inbox/`.
+- The VPS live trader also calculates its own calibration and uses the hybrid
+  calibration broker to consume both sources safely.
+
+Provision or refresh the VPS from this dashboard folder:
+
+```powershell
+python .\manage.py setup-vps
+```
+
+## Mode
+
+Switch the dashboard view with `.env`:
+
+```env
 MODE=live
+# or
+MODE=dry_run
 ```
 
-The backend then reads `results/15m_live_state.json` and `results/15m_live_trades.csv`
-(and applies `grace_period_seconds` from `config_trader_live.json` to the grace-period pill).
-The leaderboard and instance selector hide themselves in live mode since there is only one
-parameter set.
+Then restart the dashboard process:
+
+```powershell
+python .\manage.py restart --no-grid
+```
+
+In live mode the backend reads `15m_live_state.json`, `15m_live_trades.csv`,
+and `15m_live_equity.csv`. In dry-run mode it reads the grid snapshot,
+leaderboard, and paper trade history.
 
 ## Tests
 
-```bash
+```powershell
 cd backend
 python -m pytest tests/ -q
 ```
 
-## Architecture (tl;dr)
+## Architecture
 
-- **Read-only**: the dashboard *never* writes inside `BTC_pricer_15m/results/`.
-- Backend polls bot state files (file-mtime diffing and byte-offset CSV tailing), publishes
-  typed events on an in-process `EventBus`, and streams them to the browser via WebSocket
-  envelopes. Bootstrap state is served via HTTP.
-- Frontend is React + Vite + Tailwind + Zustand, with recharts for sparklines and framer-motion
-  for entry/exit/calibration animations.
+- Backend: FastAPI on port `8799`, file polling, typed state models, and
+  WebSocket updates.
+- Frontend: React + Vite + Tailwind + Zustand, with recharts and framer-motion.
+- Manager: `manage.py` starts/stops dashboard processes, controls the paper
+  grid, and delegates live switching/provisioning to the BTC bot tools.
+- Bot results: read from the sibling `../BTC_pricer_15m/results/` directory.
 
-## Files touched in the bot's project
-
-**None.** This dashboard only reads; it does not modify the bot, its config, or its `results/`.
+Dashboard-only browsing is read-only. Operational commands such as
+`manage.py live ...` and `manage.py setup-vps` intentionally manage bot/VPS
+state, so use `python .\manage.py status` before switching live execution.
