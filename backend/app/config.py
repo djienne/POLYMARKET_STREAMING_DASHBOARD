@@ -116,7 +116,7 @@ class Settings(BaseSettings):
         return self.resolved_config_dir / "config_trader_live.json"
 
     def live_location_path(self) -> Path:
-        """Marker file written by scripts/live_switch.sh — "local" | "vps" | "stopped"."""
+        """Marker file written by live_manager.py — "local" | "vps" | "stopped"."""
         return self.resolved_results_dir / ".live_location"
 
     def resolved_vps_ssh_key(self) -> Path:

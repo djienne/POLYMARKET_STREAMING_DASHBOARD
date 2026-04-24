@@ -386,27 +386,17 @@ def profile_env() -> dict[str, str]:
 
 
 def live(args: argparse.Namespace) -> int:
-    bot_switch = BOT_ROOT / "scripts" / "live_switch.ps1"
-    if not bot_switch.exists():
-        raise RuntimeError(f"BTC live switch script not found: {bot_switch}")
+    from live_manager import dispatch as live_dispatch
 
     live_args = list(args.live_args or ["status"])
-    command = live_args[0].lower() if live_args else "status"
-    if command == "ireland":
-        live_args = ["vps", "infos", *live_args[1:]]
-    elif command == "vps" and len(live_args) == 1:
-        live_args = ["vps", "infos"]
-    elif command == "start":
-        live_args = ["local", *live_args[1:]]
+    if live_args:
+        first = live_args[0].lower()
+        if first == "ireland":
+            live_args = ["vps", "infos", *live_args[1:]]
+        elif first == "start":
+            live_args = ["local", *live_args[1:]]
 
-    ps = shutil.which("powershell.exe") or "powershell.exe"
-    result = subprocess.run(
-        [ps, "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", str(bot_switch), *live_args],
-        cwd=str(BOT_ROOT),
-        env=profile_env(),
-        check=False,
-    )
-    return result.returncode
+    return live_dispatch(live_args)
 
 
 def tool_path(name: str, fallback: str | None = None) -> str:

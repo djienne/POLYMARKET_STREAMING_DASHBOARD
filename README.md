@@ -51,17 +51,6 @@ grid:
 python .\manage.py restart --no-grid
 ```
 
-Compatibility wrappers call the same Python manager:
-
-```powershell
-.\start.ps1
-.\status.ps1
-.\restart.ps1 --no-grid
-.\stop.ps1
-```
-
-Explorer-friendly `.bat` wrappers are also present.
-
 Ports:
 
 - Backend/API/WebSocket: <http://127.0.0.1:8799>
@@ -134,7 +123,8 @@ python -m pytest tests/ -q
   WebSocket updates.
 - Frontend: React + Vite + Tailwind + Zustand, with recharts and framer-motion.
 - Manager: `manage.py` starts/stops dashboard processes, controls the paper
-  grid, and delegates live switching/provisioning to the BTC bot tools.
+  grid, and drives live switching/provisioning via the sibling `live_manager.py`
+  (no shell wrappers — everything runs in Python).
 - Bot results: read from the sibling `../BTC_pricer_15m/results/` directory.
 
 Dashboard-only browsing is read-only. Operational commands such as

@@ -1,6 +1,6 @@
 # Service Control - Dashboard + BTC_pricer_15m
 
-Use the Python manager from this dashboard folder on Windows:
+All orchestration goes through `python .\manage.py` from this dashboard folder:
 
 | Command | What it does |
 |---|---|
@@ -11,38 +11,29 @@ Use the Python manager from this dashboard folder on Windows:
 | `python .\manage.py restart` | Runs stop, waits 2 seconds, then starts again. |
 | `python .\manage.py restart --no-grid` | Restarts only the dashboard backend/frontend processes. |
 | `python .\manage.py status` | Shows dashboard ports, grid container status, and live-switch status. |
-| `python .\manage.py live status` | Shows where the live trader is running. |
+| `python .\manage.py live status` | Shows where the live trader is running. Also auto-heals a stale VPS sync loop. |
 | `python .\manage.py live local` | Starts or restarts local live trading and marks the dashboard as local. |
 | `python .\manage.py live vps` | Moves live trading to the Ireland VPS profile in `vps_infos/infos.txt`. |
-| `python .\manage.py live stop` | Stops local live trading and marks it stopped. |
+| `python .\manage.py live vps <profile>` | Moves live trading to a specific VPS profile in `vps_infos/<profile>.txt`. |
+| `python .\manage.py live heal` | Restart the VPS → local state-sync loop if it died silently. Idempotent. |
+| `python .\manage.py live stop` | Stops all live trading (local + VPS) and marks it stopped. |
 | `python .\manage.py setup-vps` | Provisions/deploys the configured VPS before the first switch. |
 
-The PowerShell scripts are thin compatibility wrappers around `manage.py`:
-
-| Script | What it does |
-|---|---|
-| `.\start.ps1` | Calls `python .\manage.py start`. |
-| `.\stop.ps1` | Calls `python .\manage.py stop`. |
-| `.\restart.ps1` | Calls `python .\manage.py restart`. |
-| `.\status.ps1` | Calls `python .\manage.py status`. |
-| `.\live_switch.ps1 ...` | Calls `python .\manage.py live ...`. |
-| `.\setup_vps.ps1` | Calls `python .\manage.py setup-vps`. |
-
-The `.bat` scripts, including `status.bat`, are Explorer-friendly wrappers around the same Python manager. The old US East VPS was deleted; the current remote live target is the Ireland profile in `vps_infos/infos.txt`.
+The old US East VPS was deleted; the current remote live target is the Ireland profile in `vps_infos/infos.txt`.
 
 ## What Each Side Is
 
 - `btc_pricer_15m_grid` - 864-instance paper grid. Writes `results/state_snapshot.json` and `results/trades.csv`.
 - `btc_pricer_15m_live` - single real-money instance. Writes `results/15m_live_state.json`, `results/15m_live_trades.csv`, and `results/15m_live_equity.csv`.
+- `btc_pricer_15m_offload` - local calibration offload. Runs only while live is on the VPS; pushes local probability calculations into the VPS `results/calibration_inbox/` so the VPS live trader's hybrid calibration broker can use both local and remote signals.
 - Dashboard backend - FastAPI on `:8799`. Selects state files based on `MODE` in `.env`.
 - Dashboard frontend - Vite on `:5174`.
 
 Open the UI at <http://127.0.0.1:5174>.
 
 Dashboard backend/frontend logs are written under `logs/`, and their PIDs are
-tracked under `runtime/`. Closing the terminal used to run `manage.py start` or
-`start.ps1` does not stop the dashboard; use `python .\manage.py stop` when you
-want to shut it down.
+tracked under `runtime/`. Closing the terminal used to run `python .\manage.py start`
+does not stop the dashboard; use `python .\manage.py stop` when you want to shut it down.
 
 ## Common Tasks
 
@@ -57,8 +48,6 @@ MODE=dry_run
 Then run:
 
 ```powershell
-.\restart.ps1
-# or:
 python .\manage.py restart
 ```
 
@@ -76,9 +65,6 @@ docker logs --tail 50 btc_pricer_15m_live
 Start or restart the live trader locally:
 
 ```powershell
-.\live_switch.ps1 local
-.\live_switch.ps1 status
-# or:
 python .\manage.py live local
 python .\manage.py live status
 ```
@@ -86,10 +72,6 @@ python .\manage.py live status
 Provision or refresh the Ireland VPS, then move live trading there:
 
 ```powershell
-.\setup_vps.ps1
-.\live_switch.ps1 vps
-.\live_switch.ps1 status
-# or:
 python .\manage.py setup-vps
 python .\manage.py live vps
 python .\manage.py live status
@@ -100,11 +82,17 @@ locally. That container sends local probability calculations into the VPS
 `results/calibration_inbox/`; the VPS live trader also calculates locally and
 uses its hybrid calibration broker to consume both sources safely.
 
-Stop the local live trader:
+A detached Python sync loop (`live_manager.py --sync-loop <profile>`) mirrors
+the VPS `results/` tree down to the local `results/` so the dashboard always
+reads fresh live state. The loop writes its heartbeat to
+`results/.vps_sync_last`. If the loop ever dies silently, the next
+`python .\manage.py live status` or `live heal` call restarts it automatically.
+
+Stop all live trading:
 
 ```powershell
-.\live_switch.ps1 stop
-.\live_switch.ps1 status
+python .\manage.py live stop
+python .\manage.py live status
 ```
 
 ## State-File Safety
@@ -123,6 +111,7 @@ Only `../BTC_pricer_15m/results/trader.lock` is safe to remove if it got stale f
 
 - Dashboard does not open: check `logs/dashboard_backend.err.log` and `logs/dashboard_frontend.err.log`, then run `python .\manage.py restart`.
 - `docker` not found: make sure Docker Desktop is running and available from Windows PowerShell.
-- Backend shows the wrong mode after editing `.env`: run `.\restart.ps1`.
-- Dashboard says remote/local incorrectly after a live switch: run `.\live_switch.ps1 status`, then reload the browser after the backend pushes the next liveness update.
-- To switch back from the Ireland VPS, run `.\live_switch.ps1 local`; it stops remote live, pulls final state, and starts local live.
+- Backend shows the wrong mode after editing `.env`: run `python .\manage.py restart`.
+- Dashboard says remote/local incorrectly after a live switch: run `python .\manage.py live status`, then reload the browser after the backend pushes the next liveness update.
+- To switch back from the Ireland VPS, run `python .\manage.py live local`; it stops remote live, pulls final state, and starts local live.
+- Sync heartbeat drifts (>30s old) while on VPS: run `python .\manage.py live status` (or `live heal`) — the auto-heal path will restart the loop.
