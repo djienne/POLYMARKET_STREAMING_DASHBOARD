@@ -115,31 +115,29 @@ export default function InstanceStatsCard() {
   };
   const hasTrades = view.trades_count > 0;
 
-  // Capital + Total PnL source the on-chain USDC balance the trader fetches
-  // from Polygon RPC (state.json.capital.current → inst.capital). That's
-  // what Polymarket shows; during an open position it legitimately dips
-  // by the cost_basis because USDC is briefly tied up as shares. Earlier
-  // commit routed these through equitySeries to hide the dip, but that
-  // broke the Polymarket-truth invariant — user sees a $2+ mismatch with
-  // the Polymarket UI. CAGR keeps using realizedCapital below so the
-  // long-horizon return signal doesn't flicker on every trade.
-  const usdcPnl = view.capital - view.starting_capital;
-  const usdcPnlPct =
+  // Capital + Total PnL (and the order-size preview below) track the
+  // realized-book equity — same source as the equity-curve card header —
+  // so they stay stable during an open position and both tiles always
+  // agree. The book-vs-on-chain-USDC gap (resolution fee + slippage not
+  // backed out of pnl) is a trader-side accuracy bug; fix it via the
+  // reconcile_live_history.py one-off, not by switching UI sources.
+  const realizedPnl = realizedCapital - view.starting_capital;
+  const realizedPnlPct =
     view.starting_capital > 0
-      ? (usdcPnl / view.starting_capital) * 100
+      ? (realizedPnl / view.starting_capital) * 100
       : 0;
 
   const tiles = [
     {
       label: "Capital",
-      value: `$${view.capital.toFixed(2)}`,
+      value: `$${realizedCapital.toFixed(2)}`,
       sub: `start $${view.starting_capital.toFixed(2)}`,
     },
     {
       label: "Total PnL",
-      value: fmtMoney(usdcPnl),
-      sub: fmtPct(usdcPnlPct),
-      color: usdcPnl >= 0 ? "text-emerald-300" : "text-rose-300",
+      value: fmtMoney(realizedPnl),
+      sub: fmtPct(realizedPnlPct),
+      color: realizedPnl >= 0 ? "text-emerald-300" : "text-rose-300",
     },
     {
       label: "Sharpe",
@@ -229,7 +227,7 @@ export default function InstanceStatsCard() {
 
   const orderSizePct = shared.order_size_pct ?? null;
   const orderSizeUsd =
-    orderSizePct != null ? view.capital * orderSizePct : null;
+    orderSizePct != null ? realizedCapital * orderSizePct : null;
 
   const paramTiles: ParamTile[] = params
     ? [
