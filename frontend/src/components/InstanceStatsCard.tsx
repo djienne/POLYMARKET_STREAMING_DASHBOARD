@@ -335,13 +335,52 @@ export default function InstanceStatsCard() {
       </div>
 
       {params && (
-        <div className="grid grid-cols-6 gap-2">
-          {paramTiles.map((p) => (
-            <ParamChip key={p.short} tile={p} />
-          ))}
-        </div>
+        <>
+          <div className="flex items-center gap-2 mb-1 mt-0.5">
+            <span className="inline-block w-1.5 h-1.5 rounded-full bg-slate-400" />
+            <span className="font-semibold uppercase tracking-[0.18em] text-[11px] text-slate-300">
+              Params
+            </span>
+            <div className="flex-1 h-px bg-ink-700" />
+            <StrategyBadge
+              alphaUp={params.alpha_up}
+              alphaDown={params.alpha_down}
+            />
+          </div>
+          <div className="grid grid-cols-6 gap-2">
+            {paramTiles.map((p) => (
+              <ParamChip key={p.short} tile={p} />
+            ))}
+          </div>
+        </>
       )}
     </div>
+  );
+}
+
+function StrategyBadge({
+  alphaUp,
+  alphaDown,
+}: {
+  alphaUp: number;
+  alphaDown: number;
+}) {
+  const aggressive = alphaUp <= 1.3 && alphaDown <= 1.3;
+  const label = aggressive ? "aggressive" : "conservative";
+  const colorCls = aggressive
+    ? "bg-amber-500/15 text-amber-300 border-amber-500/40"
+    : "bg-slate-500/15 text-slate-300 border-slate-500/40";
+  const tooltip = aggressive
+    ? `aU=${alphaUp.toFixed(1)} & aD=${alphaDown.toFixed(1)} both ≤ 1.3 → light edge requirement, frequent entries`
+    : `aU=${alphaUp.toFixed(1)} aD=${alphaDown.toFixed(1)} (at least one > 1.3) → strict edge requirement, infrequent entries`;
+  return (
+    <span
+      title={tooltip}
+      className={`chip ${colorCls} font-mono uppercase tracking-wider text-[9px] py-0`}
+    >
+      <span className="text-slate-400/80 lowercase tracking-normal">strategy</span>
+      <span>{label}</span>
+    </span>
   );
 }
 
