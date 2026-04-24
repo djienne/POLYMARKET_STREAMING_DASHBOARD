@@ -32,7 +32,10 @@ export default function TopStrip() {
         {mode === "live" && (
           <div className="rounded-xl border border-amber-500/25 bg-[linear-gradient(180deg,rgba(245,158,11,0.12),rgba(245,158,11,0.05))] px-3 py-1.5 leading-tight shadow-[inset_0_1px_0_rgba(255,255,255,0.03)]">
             <div className="text-[9px] uppercase tracking-[0.18em] text-amber-200/60">
-              Live Account
+              Used polymarket account.
+            </div>
+            <div className="text-[10px] font-mono text-amber-100/85">
+              https://polymarket.com/@freqtradefr
             </div>
           </div>
         )}

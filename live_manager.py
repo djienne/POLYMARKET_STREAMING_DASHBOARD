@@ -8,6 +8,8 @@ detached subprocess when the sync loop is running
 from __future__ import annotations
 
 import os
+import json
+import shutil
 import subprocess
 import sys
 import time
@@ -67,8 +69,11 @@ SYNC_PID_PATH = RESULTS_DIR / ".vps_sync.pid"
 SYNC_HEARTBEAT_PATH = RESULTS_DIR / ".vps_sync_last"
 SYNC_LOG_PATH = RESULTS_DIR / ".vps_sync.log"
 SYNC_ERR_PATH = RESULTS_DIR / ".vps_sync.err"
+LIVE_HISTORY_BACKUP_DIR = RESULTS_DIR / "live_history_backups"
 
 SYNC_INTERVAL_S = 1
+LIVE_HISTORY_BACKUP_INTERVAL_S = 300
+LIVE_HISTORY_BACKUP_KEEP = 288
 SSH_TIMEOUT_S = 10
 SYNC_SSH_TIMEOUT_S = 8
 
@@ -79,14 +84,21 @@ VPS_COMPOSE = "docker-compose.vps.yml"
 
 REQUIRED_STATE_FILES = (
     "15m_live_state.json",
-    "15m_live_trades.csv",
-    "15m_live_equity.csv",
 )
 OPTIONAL_STATE_FILES = (
+    "15m_live_trades.csv",
+    "15m_live_equity.csv",
     "terminal_data.json",
     ".clob_latency_ms",
     "single_trader.lock",
 )
+LIVE_HISTORY_FILES = (
+    "15m_live_state.json",
+    "15m_live_trades.csv",
+    "15m_live_equity.csv",
+)
+
+_LAST_HISTORY_BACKUP_AT = 0.0
 
 
 # ---------------------------------------------------------------------------
@@ -254,27 +266,11 @@ def stop_local_offload() -> None:
 
 
 def start_local_offload(profile: VpsProfile) -> None:
-    stop_local_offload()
-    env = os.environ.copy()
-    env["VPS_HOST"] = profile.host
-    env["VPS_USER"] = profile.user
-    env["VPS_DIR"] = profile.directory
-    env["OFFLOAD_SSH_KEY_HOST_PATH"] = str(profile.key)
-    result = _run(
-        [
-            "docker", "compose",
-            "-f", "docker-compose.yml",
-            "-f", str(OFFLOAD_COMPOSE),
-            "--profile", "local-offload",
-            "up", "-d", "--build", "offload",
-        ],
-        cwd=BOT_ROOT,
-        env=env,
-        capture=False,
+    log(
+        "local calibration offload disabled; VPS live will use its own calculations only",
+        prefix="live",
     )
-    if result.returncode != 0:
-        raise RuntimeError(f"failed to start local offload container (exit {result.returncode})")
-    log(f"started local calibration offload container (profile={profile.name})", prefix="live")
+    stop_local_offload()
 
 
 # ---------------------------------------------------------------------------
@@ -355,11 +351,10 @@ def check_mutual_exclusion() -> None:
 def ensure_remote_results_writable(profile: VpsProfile) -> None:
     dir_q = _quote_remote(profile.directory)
     # Old files may be owned by root from a prior run that started live as root;
-    # remove + chown so the non-root user can overwrite via scp.
+    # chown them so the non-root user can overwrite via scp without deleting
+    # historical state first.
     remote = (
         f"sudo mkdir -p {dir_q}/results {dir_q}/results/calibration_inbox && "
-        f"sudo rm -f {dir_q}/results/15m_live_state.json "
-        f"{dir_q}/results/15m_live_trades.csv {dir_q}/results/15m_live_equity.csv && "
         f"sudo chown -R {profile.user}:{profile.user} {dir_q}/results"
     )
     result = ssh_run(profile, remote, capture=False)
@@ -367,11 +362,80 @@ def ensure_remote_results_writable(profile: VpsProfile) -> None:
         raise RuntimeError(f"ensure_remote_results_writable failed (exit {result.returncode})")
 
 
+def _safe_reason(reason: str) -> str:
+    return "".join(ch if ch.isalnum() or ch in ("-", "_") else "_" for ch in reason)[:40]
+
+
+def _prune_live_history_backups() -> None:
+    try:
+        backups = sorted(
+            [p for p in LIVE_HISTORY_BACKUP_DIR.iterdir() if p.is_dir()],
+            key=lambda p: p.name,
+            reverse=True,
+        )
+    except OSError:
+        return
+    for old in backups[LIVE_HISTORY_BACKUP_KEEP:]:
+        try:
+            shutil.rmtree(old)
+        except OSError:
+            pass
+
+
+def backup_live_history(reason: str) -> Optional[Path]:
+    existing = [RESULTS_DIR / name for name in LIVE_HISTORY_FILES if (RESULTS_DIR / name).exists()]
+    if not existing:
+        return None
+
+    stamp = time.strftime("%Y%m%d_%H%M%S", time.gmtime())
+    dest = LIVE_HISTORY_BACKUP_DIR / f"{stamp}_{_safe_reason(reason)}"
+    try:
+        dest.mkdir(parents=True, exist_ok=False)
+        for path in existing:
+            shutil.copy2(path, dest / path.name)
+        _prune_live_history_backups()
+    except OSError as exc:
+        log(f"live history backup failed ({reason}): {exc}", prefix="live")
+        return None
+    return dest
+
+
+def maybe_backup_live_history(reason: str) -> None:
+    global _LAST_HISTORY_BACKUP_AT
+    now = time.monotonic()
+    if now - _LAST_HISTORY_BACKUP_AT < LIVE_HISTORY_BACKUP_INTERVAL_S:
+        return
+    if backup_live_history(reason):
+        _LAST_HISTORY_BACKUP_AT = now
+
+
+def backup_remote_live_history(profile: VpsProfile, reason: str) -> None:
+    dir_q = _quote_remote(profile.directory)
+    reason_q = _quote_remote(_safe_reason(reason))
+    remote = (
+        "set -e; "
+        "stamp=$(date -u +%Y%m%d_%H%M%S); "
+        f"backup_dir={dir_q}/results/live_history_backups/${{stamp}}_{reason_q}; "
+        "mkdir -p \"$backup_dir\"; "
+        f"for name in {' '.join(LIVE_HISTORY_FILES)}; do "
+        f"  if test -f {dir_q}/results/$name; then cp -p {dir_q}/results/$name \"$backup_dir/$name\"; fi; "
+        "done; "
+        f"find {dir_q}/results/live_history_backups -mindepth 1 -maxdepth 1 -type d | sort -r | "
+        f"tail -n +{LIVE_HISTORY_BACKUP_KEEP + 1} | xargs -r rm -rf"
+    )
+    result = ssh_run(profile, remote, capture=False)
+    if result.returncode != 0:
+        raise RuntimeError(f"remote live history backup failed (exit {result.returncode})")
+
+
 def push_state_to_vps(profile: VpsProfile) -> None:
     RESULTS_DIR.mkdir(parents=True, exist_ok=True)
+    _guard_against_history_regression(profile, source="local", target="VPS")
+    backup_live_history("pre_push_local")
+    backup_remote_live_history(profile, "pre_push_remote")
     ensure_remote_results_writable(profile)
     pushed: list[str] = []
-    for name in REQUIRED_STATE_FILES:
+    for name in (*REQUIRED_STATE_FILES, *OPTIONAL_STATE_FILES):
         local_path = RESULTS_DIR / name
         if local_path.exists():
             dest = f"{profile.user}@{profile.host}:{profile.directory}/results/{name}"
@@ -412,6 +476,54 @@ def _ssh_cat(profile: VpsProfile, remote_path: str) -> tuple[int, bytes]:
     return completed.returncode, completed.stdout or b""
 
 
+def _closed_position_count_from_bytes(content: bytes) -> Optional[int]:
+    try:
+        data = json.loads(content.decode("utf-8"))
+    except (UnicodeDecodeError, json.JSONDecodeError, TypeError):
+        return None
+    closed = data.get("closed_positions")
+    return len(closed) if isinstance(closed, list) else None
+
+
+def _closed_position_count_from_file(path: Path) -> Optional[int]:
+    try:
+        return _closed_position_count_from_bytes(path.read_bytes())
+    except OSError:
+        return None
+
+
+def _remote_closed_position_count(profile: VpsProfile) -> Optional[int]:
+    rc, content = _ssh_cat(profile, f"{profile.directory}/results/15m_live_state.json")
+    if rc != 0:
+        return None
+    return _closed_position_count_from_bytes(content)
+
+
+def _guard_against_history_regression(
+    profile: VpsProfile,
+    *,
+    source: str,
+    target: str,
+    remote_count: Optional[int] = None,
+) -> None:
+    local_count = _closed_position_count_from_file(RESULTS_DIR / "15m_live_state.json")
+    if remote_count is None:
+        remote_count = _remote_closed_position_count(profile)
+    if local_count is None or remote_count is None:
+        return
+
+    if source == "local":
+        source_count, target_count = local_count, remote_count
+    else:
+        source_count, target_count = remote_count, local_count
+
+    if source_count < target_count:
+        raise RuntimeError(
+            f"refusing to replace {target} live history with older {source} state "
+            f"({source_count} closed positions < {target_count})"
+        )
+
+
 def _pull_one_file(profile: VpsProfile, name: str, *, required: bool) -> bool:
     remote_path = f"{profile.directory}/results/{name}"
     local_path = RESULTS_DIR / name
@@ -419,11 +531,32 @@ def _pull_one_file(profile: VpsProfile, name: str, *, required: bool) -> bool:
     rc, content = _ssh_cat(profile, remote_path)
 
     if rc == 44:
-        local_path.unlink(missing_ok=True)
+        if required:
+            log(f"required remote state file missing; preserving local {name}", prefix="live")
         return not required
 
     if rc != 0:
         return False
+
+    if name == "15m_live_state.json":
+        remote_count = _closed_position_count_from_bytes(content)
+        try:
+            _guard_against_history_regression(
+                profile,
+                source="VPS",
+                target="local",
+                remote_count=remote_count,
+            )
+        except RuntimeError as exc:
+            log(str(exc), prefix="live")
+            return True
+
+    if name in LIVE_HISTORY_FILES and local_path.exists():
+        try:
+            if local_path.read_bytes() != content:
+                maybe_backup_live_history("pre_pull_overwrite")
+        except OSError:
+            maybe_backup_live_history("pre_pull_overwrite")
 
     try:
         local_path.write_bytes(content)

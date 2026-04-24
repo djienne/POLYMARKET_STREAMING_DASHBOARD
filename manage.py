@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import argparse
 import fnmatch
+import json
 import os
 import re
 import shutil
@@ -25,6 +26,11 @@ RUNTIME_DIR = ROOT / "runtime"
 LOG_DIR = ROOT / "logs"
 TMP_DIR = ROOT / ".codex_tmp"
 VPS_INFO_DIR = ROOT / "vps_infos"
+LIVE_HISTORY_FILES = (
+    "15m_live_state.json",
+    "15m_live_trades.csv",
+    "15m_live_equity.csv",
+)
 
 BACKEND_PID = RUNTIME_DIR / "dashboard_backend.pid"
 FRONTEND_PID = RUNTIME_DIR / "dashboard_frontend.pid"
@@ -414,6 +420,15 @@ def quote_remote(value: str) -> str:
     return f"'{value}'"
 
 
+def live_state_closed_count(path: Path) -> int | None:
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return None
+    closed = data.get("closed_positions")
+    return len(closed) if isinstance(closed, list) else None
+
+
 def ssh(profile: VpsProfile, remote_command: str, *, known_hosts: Path) -> None:
     ssh_exe = tool_path("ssh.exe" if os.name == "nt" else "ssh", r"C:\Windows\System32\OpenSSH\ssh.exe")
     result = run(
@@ -544,7 +559,47 @@ def setup_vps(args: argparse.Namespace) -> int:
 
     log("seeding live state files", prefix="setup-vps")
     results_dir = bot_root / "results"
-    for name in ("15m_live_state.json", "15m_live_trades.csv", "15m_live_equity.csv"):
+    local_count = live_state_closed_count(results_dir / "15m_live_state.json")
+    if local_count is not None:
+        ssh(
+            profile,
+            "\n".join(
+                [
+                    "set -e",
+                    "python3 - <<'PY'",
+                    "import json, pathlib, sys",
+                    f"path = pathlib.Path({profile.directory!r}) / 'results' / '15m_live_state.json'",
+                    f"local_count = {local_count}",
+                    "if path.exists():",
+                    "    try:",
+                    "        data = json.loads(path.read_text())",
+                    "        remote_count = len(data.get('closed_positions') or [])",
+                    "    except Exception:",
+                    "        remote_count = None",
+                    "    if remote_count is not None and local_count < remote_count:",
+                    "        print(f'refusing to seed older local live history: {local_count} < {remote_count}', file=sys.stderr)",
+                    "        sys.exit(42)",
+                    "PY",
+                ]
+            ),
+            known_hosts=known_hosts,
+        )
+    ssh(
+        profile,
+        "\n".join(
+            [
+                "set -e",
+                "stamp=$(date -u +%Y%m%d_%H%M%S)",
+                f"backup_dir={remote_dir_q}/results/live_history_backups/${{stamp}}_setup_vps_pre_seed",
+                "mkdir -p \"$backup_dir\"",
+                f"for name in {' '.join(LIVE_HISTORY_FILES)}; do",
+                f"  if test -f {remote_dir_q}/results/$name; then cp -p {remote_dir_q}/results/$name \"$backup_dir/$name\"; fi",
+                "done",
+            ]
+        ),
+        known_hosts=known_hosts,
+    )
+    for name in LIVE_HISTORY_FILES:
         path = results_dir / name
         if path.exists():
             scp(profile, path, f"{profile.user}@{profile.host}:{profile.directory}/results/{name}", known_hosts=known_hosts)

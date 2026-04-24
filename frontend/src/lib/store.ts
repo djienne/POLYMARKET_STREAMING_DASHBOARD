@@ -358,6 +358,7 @@ export const useDash = create<DashState>((set, get) => ({
         set({ edgeUp: env.data.edge_up, edgeDown: env.data.edge_down });
         break;
       case "model.update": {
+        if (get().mode === "live") break;
         const incomingUp = env.data.series_up ?? null;
         const incomingDown = env.data.series_down ?? null;
         set((st) => ({

@@ -5,12 +5,12 @@ function sourceLabel(
   source: string | null | undefined,
   executionLocation: string | null | undefined,
 ): string | null {
-  if (executionLocation === "local") return "LOCAL";
-  if (executionLocation === "vps") return "REMOTE";
-  if (!source) return null;
   if (source === "local_offload") return "REMOTE";
   if (source === "vps_local") return "VPS";
-  return source.replace(/_/g, " ").toUpperCase();
+  if (source) return source.replace(/_/g, " ").toUpperCase();
+  if (executionLocation === "local") return "LOCAL";
+  if (executionLocation === "vps") return "VPS";
+  return null;
 }
 
 export default function CalibrationStatus() {

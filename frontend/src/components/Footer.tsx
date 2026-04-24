@@ -10,12 +10,12 @@ function timingSourceLabel(
   source: string | null | undefined,
   executionLocation: string | null | undefined,
 ): string | null {
-  if (executionLocation === "local") return "local";
-  if (executionLocation === "vps") return "remote";
-  if (!source) return null;
   if (source === "local_offload") return "remote";
   if (source === "vps_local") return "vps";
-  return source.replace(/_/g, " ").toLowerCase();
+  if (source) return source.replace(/_/g, " ").toLowerCase();
+  if (executionLocation === "local") return "local";
+  if (executionLocation === "vps") return "vps";
+  return null;
 }
 
 export default function Footer() {

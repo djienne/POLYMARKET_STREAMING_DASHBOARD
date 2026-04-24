@@ -42,6 +42,12 @@ from ..models import (
 from ..time_utils import PARIS_TZ, iso_to_unix, paris_date_key, paris_day_start_utc
 
 
+def _model_series_for_chart(hub: "Hub", side: str) -> list[dict]:
+    if settings.mode == "live":
+        return hub.terminal.model_series(side)
+    return hub.docker_log.model_series(side) or hub.terminal.model_series(side)
+
+
 class Hub:
     def __init__(self) -> None:
         self.terminal = TerminalReader(settings.terminal_path())
@@ -250,10 +256,10 @@ class Hub:
                 self.polymarket.series("DOWN") or self.orderbook.series("DOWN"), slug
             ),
             model_up=self._scope_series(
-                self.docker_log.model_series("UP") or self.terminal.model_series("UP"), slug
+                _model_series_for_chart(self, "UP"), slug
             ),
             model_down=self._scope_series(
-                self.docker_log.model_series("DOWN") or self.terminal.model_series("DOWN"), slug
+                _model_series_for_chart(self, "DOWN"), slug
             ),
             markers=self._markers_for(instance_id, slug),
             window_start_iso=_window_iso(slug, 0),

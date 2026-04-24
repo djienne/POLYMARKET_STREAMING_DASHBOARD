@@ -45,11 +45,15 @@ async def lifespan(app: FastAPI):
         await hub.polymarket.poll()
     except Exception:
         log.exception("polymarket seed failed")
-    # Seed docker-log tail with the last 20 minutes of ticks so the price chart paints immediately
-    try:
-        await hub.docker_log.poll(since_seconds=1200)
-    except Exception:
-        log.exception("docker log seed failed")
+    # In dry-run mode, seed model probabilities from the local grid logs.
+    # In live mode, the model chart must use the active live trader's
+    # terminal_data only; the local grid can still be running and would pollute
+    # the live chart with unrelated model ticks.
+    if settings.mode == "dry_run":
+        try:
+            await hub.docker_log.poll(since_seconds=1200)
+        except Exception:
+            log.exception("docker log seed failed")
 
     stop = asyncio.Event()
     tasks = [
@@ -60,7 +64,11 @@ async def lifespan(app: FastAPI):
         asyncio.create_task(run_trades_loop(hub.trades, stop)),
         asyncio.create_task(run_leaderboard_loop(hub.leaderboard, stop)),
         asyncio.create_task(run_orderbook_loop(hub.orderbook, stop)),
-        asyncio.create_task(run_docker_log_loop(hub.docker_log, stop)),
+        *(
+            [asyncio.create_task(run_docker_log_loop(hub.docker_log, stop))]
+            if settings.mode == "dry_run"
+            else []
+        ),
         asyncio.create_task(run_polymarket_loop(hub.polymarket, stop)),
         asyncio.create_task(run_calibration_loop(hub.calibration, stop)),
     ]
