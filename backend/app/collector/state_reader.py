@@ -8,7 +8,8 @@ from typing import Optional
 
 from ..config import settings
 from ..events.bus import bus
-from ..models import InstanceStats, OpenPosition, PositionState
+from ..models import InstanceStats, OpenPosition, PositionState, TradeEvent
+from . import entry_registry
 
 log = logging.getLogger(__name__)
 
@@ -292,10 +293,95 @@ class StateReader:
         return self._raw
 
 
+# Matches the constant in trades_tail. Duplicated to avoid a cross-module
+# import cycle — value is a bare convention, unlikely to drift.
+_SINGLE_TRADER_INSTANCE_ID = 100
+
+
+def _current_open_position(raw: dict) -> Optional[dict]:
+    positions = raw.get("open_positions") or []
+    if not positions:
+        return None
+    first = positions[0]
+    return first if isinstance(first, dict) else None
+
+
+def _open_key(raw: dict) -> Optional[str]:
+    """Stable identifier for the currently-open position, or None if none.
+
+    Uses ``opened_at`` — the same ISO timestamp the trader writes into
+    ``15m_live_trades.csv`` at close, so state_reader and trades_tail agree
+    on the dedup key.
+    """
+    pos = _current_open_position(raw)
+    if pos is None:
+        return None
+    opened_at = pos.get("opened_at")
+    return opened_at if isinstance(opened_at, str) and opened_at else None
+
+
+def _build_entry_event(raw: dict) -> Optional[TradeEvent]:
+    pos = _current_open_position(raw)
+    if pos is None:
+        return None
+    opened_at = pos.get("opened_at")
+    if not isinstance(opened_at, str) or not opened_at:
+        return None
+
+    def _f(v: object) -> Optional[float]:
+        if isinstance(v, (int, float)):
+            return float(v)
+        return None
+
+    return TradeEvent(
+        instance_id=_SINGLE_TRADER_INSTANCE_ID,
+        timestamp=opened_at,
+        event="ENTRY",
+        direction=pos.get("direction") if isinstance(pos.get("direction"), str) else None,
+        market_id=pos.get("market_id") if isinstance(pos.get("market_id"), str) else None,
+        entry_price=_f(pos.get("entry_price")),
+        exit_price=None,
+        shares=_f(pos.get("shares")),
+        pnl=None,
+        pnl_pct=None,
+        capital=None,
+        model_prob=_f(pos.get("model_prob")),
+        poly_prob=_f(pos.get("poly_price") or pos.get("poly_prob")),
+        spot_price=_f(pos.get("spot_price")),
+        barrier=_f(pos.get("reference_price")),
+    )
+
+
 async def run_state_loop(reader: "StateReader", stop: asyncio.Event) -> None:
+    last_open_key: Optional[str] = None
+    bootstrapped: bool = False
     while not stop.is_set():
         if reader.read_if_changed():
             await bus.publish("state.update", {"mtime": reader._last_mtime})
+
+            current_key = _open_key(reader._raw)
+            if current_key != last_open_key and current_key is not None:
+                if bootstrapped:
+                    # Fresh null → open transition while we were watching.
+                    # Publish ENTRY so the dashboard fires the entry GIF
+                    # and marker immediately, not at close time.
+                    event = _build_entry_event(reader._raw)
+                    if event is not None:
+                        try:
+                            await bus.publish("trade.append", event.model_dump())
+                            entry_registry.mark_emitted(current_key)
+                        except Exception:
+                            log.exception("failed to publish ENTRY trade.append")
+                else:
+                    # First read after dashboard start and a position is
+                    # already open — we missed the opening. Don't fire a
+                    # misleading "just opened" flash, but mark the key so
+                    # trades_tail doesn't retroactively emit an ENTRY when
+                    # the CSV close row eventually arrives.
+                    entry_registry.mark_emitted(current_key)
+
+            last_open_key = current_key
+            bootstrapped = True
         try:
             await asyncio.wait_for(stop.wait(), timeout=settings.state_poll_interval_seconds)
         except asyncio.TimeoutError:

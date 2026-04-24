@@ -12,6 +12,7 @@ from ..config import settings
 from ..events.bus import bus
 from ..models import TodaySummary, TradeEvent
 from ..time_utils import paris_date_key
+from . import entry_registry
 
 log = logging.getLogger(__name__)
 
@@ -280,6 +281,12 @@ async def run_trades_loop(tail: "TradesTail", stop: asyncio.Event) -> None:
             log.exception("trades poll error")
             new_events = []
         for ev in new_events:
+            # Suppress the retroactive ENTRY that comes with a closed-row
+            # pair if state_reader already published one at open time.
+            # Internal bookkeeping above still consumed the event so the
+            # bootstrap markers / today-counter remain accurate.
+            if ev.event == "ENTRY" and entry_registry.was_emitted(ev.timestamp):
+                continue
             await bus.publish("trade.append", ev.model_dump())
         try:
             await asyncio.wait_for(stop.wait(), timeout=settings.poll_interval_seconds)
