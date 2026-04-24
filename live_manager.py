@@ -97,6 +97,13 @@ LIVE_HISTORY_FILES = (
     "15m_live_trades.csv",
     "15m_live_equity.csv",
 )
+PUSH_STATE_FILES = (
+    "15m_live_state.json",
+    "15m_live_trades.csv",
+    "15m_live_equity.csv",
+    "terminal_data.json",
+    ".clob_latency_ms",
+)
 
 _LAST_HISTORY_BACKUP_AT = 0.0
 
@@ -435,7 +442,7 @@ def push_state_to_vps(profile: VpsProfile) -> None:
     backup_remote_live_history(profile, "pre_push_remote")
     ensure_remote_results_writable(profile)
     pushed: list[str] = []
-    for name in (*REQUIRED_STATE_FILES, *OPTIONAL_STATE_FILES):
+    for name in PUSH_STATE_FILES:
         local_path = RESULTS_DIR / name
         if local_path.exists():
             dest = f"{profile.user}@{profile.host}:{profile.directory}/results/{name}"
