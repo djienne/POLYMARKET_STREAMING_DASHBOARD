@@ -48,6 +48,7 @@ export interface OpenPosition {
   entered_at?: string | null;
   market_id?: string | null;
   notional?: number | null;
+  entry_edge_ratio?: number | null;
 }
 
 export interface PositionState {

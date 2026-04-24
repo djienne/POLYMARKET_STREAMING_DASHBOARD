@@ -57,13 +57,30 @@ export default function PositionCard() {
 
       {open ? (
         <div className="space-y-2">
-          <div className="flex items-baseline gap-2">
+          <div className="flex items-baseline gap-2 flex-wrap">
             <span className={`text-lg font-semibold ${dirColor}`}>
               {open.direction}
             </span>
             <span className="text-slate-500 text-[11px] font-mono">
               opened {fmtLocalHMS(open.entered_at)}
             </span>
+            {open.entry_edge_ratio != null && (
+              <span
+                title="Edge ratio the trader captured at fill (model_prob / executable market price). Higher = better-quality entry."
+                className={`chip font-mono text-[10px] ${
+                  open.entry_edge_ratio >= 1.2
+                    ? "bg-emerald-500/10 text-emerald-300 border-emerald-500/30"
+                    : open.entry_edge_ratio >= 1.05
+                      ? "bg-cyan-500/10 text-cyan-300 border-cyan-500/30"
+                      : "bg-amber-500/10 text-amber-300 border-amber-500/30"
+                }`}
+              >
+                <span className="text-slate-400/80">edge</span>
+                <span className="tabular-nums">
+                  {open.entry_edge_ratio.toFixed(2)}x
+                </span>
+              </span>
+            )}
           </div>
           <div className="grid grid-cols-3 gap-x-3 gap-y-1.5">
             <Stat label="entry" value={open.entry_price.toFixed(4)} />

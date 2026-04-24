@@ -76,6 +76,16 @@ def instance_from_raw(instance_id: int, raw: dict, starting_capital: float = STA
     )
 
 
+def _edge_ratio_from_entry_ctx(pos: dict) -> Optional[float]:
+    ctx = pos.get("entry_context")
+    if not isinstance(ctx, dict):
+        return None
+    v = ctx.get("edge_ratio")
+    if isinstance(v, (int, float)):
+        return float(v)
+    return None
+
+
 def position_from_raw(raw: dict) -> PositionState:
     pos = raw.get("position")
     last_exit = raw.get("last_tp_sl_time")
@@ -91,6 +101,7 @@ def position_from_raw(raw: dict) -> PositionState:
             entered_at=pos.get("opened_at"),
             market_id=pos.get("market_id"),
             notional=float(pos.get("cost_basis")) if pos.get("cost_basis") is not None else None,
+            entry_edge_ratio=_edge_ratio_from_entry_ctx(pos),
         )
     except Exception:
         log.exception("position parse failed")
@@ -224,6 +235,7 @@ def position_from_live_raw(raw: dict) -> PositionState:
             entered_at=pos.get("opened_at"),
             market_id=pos.get("market_id"),
             notional=float(pos.get("cost_basis")) if pos.get("cost_basis") is not None else None,
+            entry_edge_ratio=_edge_ratio_from_entry_ctx(pos),
         )
     except Exception:
         log.exception("live position parse failed")

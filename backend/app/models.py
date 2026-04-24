@@ -55,6 +55,10 @@ class OpenPosition(BaseModel):
     entered_at: Optional[str] = None
     market_id: Optional[str] = None
     notional: Optional[float] = None
+    # Edge ratio the trader captured at the moment of fill (model_prob vs
+    # executable market price). Sourced from Position.entry_context["edge_ratio"]
+    # in the live trader, which is also persisted to 15m_live_trades.csv.
+    entry_edge_ratio: Optional[float] = None
 
 
 class PositionState(BaseModel):
