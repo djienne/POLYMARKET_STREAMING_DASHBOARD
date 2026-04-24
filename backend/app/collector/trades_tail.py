@@ -286,6 +286,11 @@ async def run_trades_loop(tail: "TradesTail", stop: asyncio.Event) -> None:
             # Internal bookkeeping above still consumed the event so the
             # bootstrap markers / today-counter remain accurate.
             if ev.event == "ENTRY" and entry_registry.was_emitted(ev.timestamp):
+                log.info(
+                    "trades_tail skipped duplicate ENTRY opened_at=%s "
+                    "(state_reader already emitted)",
+                    ev.timestamp,
+                )
                 continue
             await bus.publish("trade.append", ev.model_dump())
         try:

@@ -353,35 +353,44 @@ def _build_entry_event(raw: dict) -> Optional[TradeEvent]:
 
 
 async def run_state_loop(reader: "StateReader", stop: asyncio.Event) -> None:
-    last_open_key: Optional[str] = None
-    bootstrapped: bool = False
+    # lifespan() already primed the reader (hub.state.read_if_changed()
+    # before this task was created), so reader._raw is the baseline truth.
+    # If a position is open at baseline we missed its opening — register
+    # it in entry_registry so trades_tail doesn't retroactively emit an
+    # ENTRY once the CSV close row lands. Every null→open transition the
+    # loop sees from here on is genuine and fires unconditionally.
+    last_open_key = _open_key(reader._raw)
+    if last_open_key is not None:
+        entry_registry.mark_emitted(last_open_key)
+        log.info(
+            "state_loop baseline: position already open (opened_at=%s) — "
+            "will suppress retroactive ENTRY on close",
+            last_open_key,
+        )
+    else:
+        log.info("state_loop baseline: no open position")
+
     while not stop.is_set():
         if reader.read_if_changed():
             await bus.publish("state.update", {"mtime": reader._last_mtime})
 
             current_key = _open_key(reader._raw)
-            if current_key != last_open_key and current_key is not None:
-                if bootstrapped:
-                    # Fresh null → open transition while we were watching.
-                    # Publish ENTRY so the dashboard fires the entry GIF
-                    # and marker immediately, not at close time.
-                    event = _build_entry_event(reader._raw)
-                    if event is not None:
-                        try:
-                            await bus.publish("trade.append", event.model_dump())
-                            entry_registry.mark_emitted(current_key)
-                        except Exception:
-                            log.exception("failed to publish ENTRY trade.append")
-                else:
-                    # First read after dashboard start and a position is
-                    # already open — we missed the opening. Don't fire a
-                    # misleading "just opened" flash, but mark the key so
-                    # trades_tail doesn't retroactively emit an ENTRY when
-                    # the CSV close row eventually arrives.
-                    entry_registry.mark_emitted(current_key)
-
+            if current_key is not None and current_key != last_open_key:
+                event = _build_entry_event(reader._raw)
+                if event is not None:
+                    try:
+                        await bus.publish("trade.append", event.model_dump())
+                        entry_registry.mark_emitted(current_key)
+                        log.info(
+                            "state_loop emitted ENTRY opened_at=%s "
+                            "direction=%s entry_price=%s",
+                            current_key,
+                            event.direction,
+                            event.entry_price,
+                        )
+                    except Exception:
+                        log.exception("failed to publish ENTRY trade.append")
             last_open_key = current_key
-            bootstrapped = True
         try:
             await asyncio.wait_for(stop.wait(), timeout=settings.state_poll_interval_seconds)
         except asyncio.TimeoutError:
