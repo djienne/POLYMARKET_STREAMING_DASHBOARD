@@ -11,6 +11,7 @@ import os
 import subprocess
 import sys
 import time
+import traceback
 from pathlib import Path
 from typing import Optional
 
@@ -92,18 +93,32 @@ OPTIONAL_STATE_FILES = (
 # SSH / SCP helpers (match live_switch semantics: StrictHostKeyChecking=no)
 # ---------------------------------------------------------------------------
 
+# Resolved once at import. Calling shutil.which on every pull cycle was a
+# subtle race risk: a transient PATH stat hiccup (antivirus scanning, file
+# system pressure) could make tool_path raise or return a stale path that
+# CreateProcess then rejects with WinError 2.
+_SSH_EXE: Optional[str] = None
+_SCP_EXE: Optional[str] = None
+
+
 def _ssh_exe() -> str:
-    return tool_path(
-        "ssh.exe" if os.name == "nt" else "ssh",
-        r"C:\Windows\System32\OpenSSH\ssh.exe",
-    )
+    global _SSH_EXE
+    if _SSH_EXE is None:
+        _SSH_EXE = tool_path(
+            "ssh.exe" if os.name == "nt" else "ssh",
+            r"C:\Windows\System32\OpenSSH\ssh.exe",
+        )
+    return _SSH_EXE
 
 
 def _scp_exe() -> str:
-    return tool_path(
-        "scp.exe" if os.name == "nt" else "scp",
-        r"C:\Windows\System32\OpenSSH\scp.exe",
-    )
+    global _SCP_EXE
+    if _SCP_EXE is None:
+        _SCP_EXE = tool_path(
+            "scp.exe" if os.name == "nt" else "scp",
+            r"C:\Windows\System32\OpenSSH\scp.exe",
+        )
+    return _SCP_EXE
 
 
 def _ssh_args(profile: VpsProfile, *, timeout: int = SSH_TIMEOUT_S) -> list[str]:
@@ -370,43 +385,51 @@ def push_state_to_vps(profile: VpsProfile) -> None:
         log("no live state files to push", prefix="live")
 
 
-def _test_remote_file(profile: VpsProfile, remote_path: str) -> bool:
-    result = _run(
-        _ssh_args(profile, timeout=SYNC_SSH_TIMEOUT_S) + [f"test -f '{remote_path}'"],
-        capture=True,
+def _ssh_cat(profile: VpsProfile, remote_path: str) -> tuple[int, bytes]:
+    """One round-trip pull: streams remote file content over ssh stdout.
+
+    Replaces the older ``test -f`` + ``scp tmpfile`` two-call pattern.
+    The previous design wrote a ``__sync_tmp__*`` file in results/ then
+    ``os.replace``-d it onto the final name; on Windows, real-time AV
+    scanning of the brand-new temp file would briefly remove it from
+    disk in the microseconds between scp finishing and the rename,
+    making os.replace fail with WinError 2. Skipping the temp file
+    eliminates the race entirely.
+
+    Exit codes (from the composite remote command):
+      0  → file present, stdout = its raw bytes
+      44 → file absent
+      *  → ssh/network error
+    """
+    remote_cmd = (
+        f"if test -f '{remote_path}'; then cat '{remote_path}'; else exit 44; fi"
     )
-    if result.returncode == 0:
-        return True
-    if result.returncode == 1:
-        return False
-    raise RuntimeError(f"ssh test failed for {remote_path} (exit {result.returncode})")
+    text_args = _ssh_args(profile, timeout=SYNC_SSH_TIMEOUT_S) + [remote_cmd]
+    kwargs: dict = dict(capture_output=True)
+    if os.name == "nt":
+        kwargs["creationflags"] = _NO_WINDOW
+    completed = subprocess.run([str(a) for a in text_args], **kwargs)
+    return completed.returncode, completed.stdout or b""
 
 
 def _pull_one_file(profile: VpsProfile, name: str, *, required: bool) -> bool:
     remote_path = f"{profile.directory}/results/{name}"
-    tmp_path = RESULTS_DIR / ("__sync_tmp__" + name.lstrip("."))
     local_path = RESULTS_DIR / name
 
-    try:
-        exists = _test_remote_file(profile, remote_path)
-    except RuntimeError:
-        return False
+    rc, content = _ssh_cat(profile, remote_path)
 
-    if not exists:
-        tmp_path.unlink(missing_ok=True)
+    if rc == 44:
         local_path.unlink(missing_ok=True)
         return not required
 
-    source = f"{profile.user}@{profile.host}:{remote_path}"
-    result = _run(
-        _scp_args(profile, timeout=SYNC_SSH_TIMEOUT_S) + [source, str(tmp_path)],
-        capture=True,
-    )
-    if result.returncode == 0:
-        os.replace(str(tmp_path), str(local_path))
-        return True
-    tmp_path.unlink(missing_ok=True)
-    return False
+    if rc != 0:
+        return False
+
+    try:
+        local_path.write_bytes(content)
+    except OSError:
+        return False
+    return True
 
 
 def _pull_all_files_once(profile: VpsProfile) -> bool:
@@ -445,6 +468,7 @@ def run_sync_loop_body(profile: VpsProfile) -> None:
         except Exception as exc:
             ts = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
             print(f"[vps_state_sync {ts}] pull raised: {exc!r}", flush=True)
+            print(traceback.format_exc(), flush=True)
             ok = False
         if ok:
             try:
