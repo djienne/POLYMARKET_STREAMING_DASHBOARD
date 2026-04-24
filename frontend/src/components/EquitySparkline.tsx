@@ -16,12 +16,6 @@ const ZOOM_4D_MS = 4 * 86_400_000;
 export default function EquitySparkline() {
   const series = useDash((s) => s.equitySeries);
   const windowStartIso = useDash((s) => s.windowStartIso);
-  // Live USDC capital from the trader (state.json.capital.current). We tack
-  // it onto the end of the realized-close series so the curve's endpoint
-  // matches Polymarket — otherwise it plots `starting + Σ realized_pnls`,
-  // which diverges from the actual USDC balance whenever a position is
-  // open (cost_basis briefly held as shares, not USDC).
-  const liveCapital = useDash((s) => s.instance?.capital ?? null);
   // Prefer the live instance's starting_capital; fall back to the trader's
   // configured starting_capital (live: 100, paper grid: 1000) so a fresh run
   // with no trades still renders on a sensible scale.
@@ -47,27 +41,10 @@ export default function EquitySparkline() {
       .filter((x): x is { ts: number; v: number } => x != null)
       .sort((a, b) => a.ts - b.ts);
 
-    // Trailing live-USDC tip: extend the curve to "now" with the trader's
-    // current capital so the endpoint matches the Capital tile + Polymarket.
-    // Only tip when the live USDC differs from the last realized point —
-    // otherwise a duplicate point at the same y would just flatten the line.
-    const withTip = (arr: { ts: number; v: number }[]) => {
-      if (liveCapital == null) return arr;
-      const now = Date.now();
-      const last = arr[arr.length - 1];
-      if (!last || now <= last.ts) return arr;
-      const sameValue = last && Math.abs(last.v - liveCapital) < 1e-6;
-      if (sameValue) {
-        // Extend the horizontal line to now without a phantom point change.
-        return [...arr, { ts: now, v: last.v }];
-      }
-      return [...arr, { ts: now, v: liveCapital }];
-    };
-
     if (mode === "4d") {
       const cutoff = Date.now() - ZOOM_4D_MS;
       const zoomed = full.filter((p) => p.ts >= cutoff);
-      if (zoomed.length >= 2) return withTip(zoomed);
+      if (zoomed.length >= 2) return zoomed;
     }
     if (full.length === 0) {
       const now = Date.now();
@@ -76,14 +53,13 @@ export default function EquitySparkline() {
         Number.isFinite(seedStart) && seedStart < now
           ? seedStart
           : now - 15 * 60 * 1000;
-      const baseline = liveCapital ?? start;
       return [
         { ts: startTs, v: start },
-        { ts: Math.max(startTs + 1000, now), v: baseline },
+        { ts: Math.max(startTs + 1000, now), v: start },
       ];
     }
-    return withTip(full);
-  }, [series, mode, start, windowStartIso, liveCapital]);
+    return full;
+  }, [series, mode, start, windowStartIso]);
 
   const last = data[data.length - 1]?.v ?? start;
   const closedTrades = Math.max(series.length - 1, 0);
