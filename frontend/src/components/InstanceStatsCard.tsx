@@ -27,6 +27,16 @@ export default function InstanceStatsCard() {
         }
       : null);
 
+  // Realized-only capital: ignores whatever notional is locked into the
+  // currently-open position, so the ALL TIME section doesn't dip while a
+  // trade is in-flight. `equitySeries` only grows on CLOSE_EVENTS (see
+  // trade-derive.ts nextLiveEquity), so its last value IS the realized
+  // capital; if nothing has closed yet we fall back to starting capital.
+  const realizedCapital =
+    equitySeries.length > 0
+      ? equitySeries[equitySeries.length - 1].v
+      : inst?.starting_capital ?? shared.starting_capital ?? 0;
+
   const cagrUnavailable = "--";
   const { firstTs, daysLive, cagrDisplay, cagrPositive } = useMemo(() => {
     const candidates: number[] = [];
@@ -49,7 +59,7 @@ export default function InstanceStatsCard() {
     }
     const days = Math.max(0, (Date.now() - first) / 86_400_000);
     const start = inst.starting_capital;
-    const capital = inst.capital;
+    const capital = realizedCapital;
     if (days < 1 || start <= 0 || !Number.isFinite(capital) || capital <= 0) {
       return {
         firstTs: first,
@@ -86,7 +96,7 @@ export default function InstanceStatsCard() {
       cagrDisplay: display,
       cagrPositive: pct >= 0,
     };
-  }, [trades, equitySeries, inst]);
+  }, [trades, equitySeries, inst, realizedCapital]);
 
   const startingCapital =
     inst?.starting_capital ?? shared.starting_capital ?? 0;
@@ -105,17 +115,25 @@ export default function InstanceStatsCard() {
   };
   const hasTrades = view.trades_count > 0;
 
+  // Realized PnL = realizedCapital - starting. Matches the Capital tile,
+  // which ignores the currently-open position's notional dip.
+  const realizedPnl = realizedCapital - view.starting_capital;
+  const realizedPnlPct =
+    view.starting_capital > 0
+      ? (realizedPnl / view.starting_capital) * 100
+      : 0;
+
   const tiles = [
     {
       label: "Capital",
-      value: `$${view.capital.toFixed(2)}`,
+      value: `$${realizedCapital.toFixed(2)}`,
       sub: `start $${view.starting_capital.toFixed(2)}`,
     },
     {
       label: "Total PnL",
-      value: fmtMoney(view.total_pnl),
-      sub: fmtPct(view.total_pnl_pct),
-      color: view.total_pnl >= 0 ? "text-emerald-300" : "text-rose-300",
+      value: fmtMoney(realizedPnl),
+      sub: fmtPct(realizedPnlPct),
+      color: realizedPnl >= 0 ? "text-emerald-300" : "text-rose-300",
     },
     {
       label: "Sharpe",
@@ -205,7 +223,7 @@ export default function InstanceStatsCard() {
 
   const orderSizePct = shared.order_size_pct ?? null;
   const orderSizeUsd =
-    orderSizePct != null ? view.capital * orderSizePct : null;
+    orderSizePct != null ? realizedCapital * orderSizePct : null;
 
   const paramTiles: ParamTile[] = params
     ? [
