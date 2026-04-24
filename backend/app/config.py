@@ -36,7 +36,11 @@ class Settings(BaseSettings):
     backend_port: int = 8799
 
     poll_interval_seconds: float = 2.0
-    state_poll_interval_seconds: float = 5.0
+    # Dominant source of entry-marker latency — stat is cheap, no reason
+    # to wait 5 s. At 1 s the entry event surfaces ~1-2 s after the trader
+    # fill instead of up to 7 s, so the marker no longer lands visibly in
+    # the past on the live chart.
+    state_poll_interval_seconds: float = 1.0
     leaderboard_poll_interval_seconds: float = 30.0
     calibration_timeout_seconds: float = 360.0
 
