@@ -31,6 +31,8 @@ LIVE_HISTORY_FILES = (
     "15m_live_trades.csv",
     "15m_live_equity.csv",
 )
+LIVE_CONTAINER_NAME = "btc_pricer_15m_live"
+VPS_COMPOSE_FILE = "docker-compose.vps.yml"
 
 BACKEND_PID = RUNTIME_DIR / "dashboard_backend.pid"
 FRONTEND_PID = RUNTIME_DIR / "dashboard_frontend.pid"
@@ -453,6 +455,39 @@ def ssh(profile: VpsProfile, remote_command: str, *, known_hosts: Path) -> None:
         raise RuntimeError(f"ssh command failed with exit code {result.returncode}")
 
 
+def ssh_capture(profile: VpsProfile, remote_command: str, *, known_hosts: Path) -> CommandResult:
+    """Like ssh() but captures stdout/stderr and never raises on non-zero."""
+    ssh_exe = tool_path("ssh.exe" if os.name == "nt" else "ssh", r"C:\Windows\System32\OpenSSH\ssh.exe")
+    return run(
+        [
+            ssh_exe,
+            "-i",
+            profile.key,
+            "-o",
+            "IdentitiesOnly=yes",
+            "-o",
+            "StrictHostKeyChecking=accept-new",
+            "-o",
+            f"UserKnownHostsFile={known_hosts}",
+            "-o",
+            "ConnectTimeout=12",
+            f"{profile.user}@{profile.host}",
+            remote_command,
+        ],
+        capture=True,
+    )
+
+
+def vps_live_container_running(profile: VpsProfile, *, known_hosts: Path) -> bool:
+    """Return True iff the live trader container is currently running on the VPS."""
+    result = ssh_capture(
+        profile,
+        f"docker ps --filter name=^{LIVE_CONTAINER_NAME}$ --filter status=running --format '{{{{.Names}}}}'",
+        known_hosts=known_hosts,
+    )
+    return LIVE_CONTAINER_NAME in (result.stdout or "")
+
+
 def scp(profile: VpsProfile, source: Path | str, destination: str, *, known_hosts: Path) -> None:
     scp_exe = tool_path("scp.exe" if os.name == "nt" else "scp", r"C:\Windows\System32\OpenSSH\scp.exe")
     result = run(
@@ -557,64 +592,93 @@ def setup_vps(args: argparse.Namespace) -> int:
     scp(profile, env_path, f"{profile.user}@{profile.host}:{profile.directory}/.env.tmp", known_hosts=known_hosts)
     ssh(profile, f"set -e; mv {remote_dir_q}/.env.tmp {remote_dir_q}/.env; chmod 600 {remote_dir_q}/.env", known_hosts=known_hosts)
 
-    log("seeding live state files", prefix="setup-vps")
-    results_dir = bot_root / "results"
-    local_count = live_state_closed_count(results_dir / "15m_live_state.json")
-    if local_count is not None:
+    # If the live container is already running on the VPS, the VPS state is
+    # authoritative — do not seed (overwriting a root-owned, in-flight state.json
+    # would either fail with permission denied or clobber positions).
+    live_running_on_vps = vps_live_container_running(profile, known_hosts=known_hosts)
+
+    if live_running_on_vps:
+        log(
+            f"live container '{LIVE_CONTAINER_NAME}' is running on {profile.label}; "
+            "skipping state seed (VPS state is authoritative)",
+            prefix="setup-vps",
+        )
+    else:
+        log("seeding live state files", prefix="setup-vps")
+        results_dir = bot_root / "results"
+        local_count = live_state_closed_count(results_dir / "15m_live_state.json")
+        if local_count is not None:
+            ssh(
+                profile,
+                "\n".join(
+                    [
+                        "set -e",
+                        "python3 - <<'PY'",
+                        "import json, pathlib, sys",
+                        f"path = pathlib.Path({profile.directory!r}) / 'results' / '15m_live_state.json'",
+                        f"local_count = {local_count}",
+                        "if path.exists():",
+                        "    try:",
+                        "        data = json.loads(path.read_text())",
+                        "        remote_count = len(data.get('closed_positions') or [])",
+                        "    except Exception:",
+                        "        remote_count = None",
+                        "    if remote_count is not None and local_count < remote_count:",
+                        "        print(f'refusing to seed older local live history: {local_count} < {remote_count}', file=sys.stderr)",
+                        "        sys.exit(42)",
+                        "PY",
+                    ]
+                ),
+                known_hosts=known_hosts,
+            )
         ssh(
             profile,
             "\n".join(
                 [
                     "set -e",
-                    "python3 - <<'PY'",
-                    "import json, pathlib, sys",
-                    f"path = pathlib.Path({profile.directory!r}) / 'results' / '15m_live_state.json'",
-                    f"local_count = {local_count}",
-                    "if path.exists():",
-                    "    try:",
-                    "        data = json.loads(path.read_text())",
-                    "        remote_count = len(data.get('closed_positions') or [])",
-                    "    except Exception:",
-                    "        remote_count = None",
-                    "    if remote_count is not None and local_count < remote_count:",
-                    "        print(f'refusing to seed older local live history: {local_count} < {remote_count}', file=sys.stderr)",
-                    "        sys.exit(42)",
-                    "PY",
+                    "stamp=$(date -u +%Y%m%d_%H%M%S)",
+                    f"backup_dir={remote_dir_q}/results/live_history_backups/${{stamp}}_setup_vps_pre_seed",
+                    "mkdir -p \"$backup_dir\"",
+                    f"for name in {' '.join(LIVE_HISTORY_FILES)}; do",
+                    f"  if test -f {remote_dir_q}/results/$name; then cp -p {remote_dir_q}/results/$name \"$backup_dir/$name\"; fi",
+                    "done",
                 ]
             ),
             known_hosts=known_hosts,
         )
-    ssh(
-        profile,
-        "\n".join(
-            [
-                "set -e",
-                "stamp=$(date -u +%Y%m%d_%H%M%S)",
-                f"backup_dir={remote_dir_q}/results/live_history_backups/${{stamp}}_setup_vps_pre_seed",
-                "mkdir -p \"$backup_dir\"",
-                f"for name in {' '.join(LIVE_HISTORY_FILES)}; do",
-                f"  if test -f {remote_dir_q}/results/$name; then cp -p {remote_dir_q}/results/$name \"$backup_dir/$name\"; fi",
-                "done",
-            ]
-        ),
-        known_hosts=known_hosts,
-    )
-    for name in LIVE_HISTORY_FILES:
-        path = results_dir / name
-        if path.exists():
-            scp(profile, path, f"{profile.user}@{profile.host}:{profile.directory}/results/{name}", known_hosts=known_hosts)
-    ssh(
-        profile,
-        f"set -e; chmod 644 {remote_dir_q}/results/15m_live_state.json "
-        f"{remote_dir_q}/results/15m_live_trades.csv {remote_dir_q}/results/15m_live_equity.csv 2>/dev/null || true",
-        known_hosts=known_hosts,
-    )
+        for name in LIVE_HISTORY_FILES:
+            path = results_dir / name
+            if path.exists():
+                scp(profile, path, f"{profile.user}@{profile.host}:{profile.directory}/results/{name}", known_hosts=known_hosts)
+        ssh(
+            profile,
+            f"set -e; chmod 644 {remote_dir_q}/results/15m_live_state.json "
+            f"{remote_dir_q}/results/15m_live_trades.csv {remote_dir_q}/results/15m_live_equity.csv 2>/dev/null || true",
+            known_hosts=known_hosts,
+        )
 
     if not args.skip_build:
         log("building VPS live image", prefix="setup-vps")
-        ssh(profile, f"set -e; cd {remote_dir_q}; docker compose -f docker-compose.vps.yml build live", known_hosts=known_hosts)
+        ssh(
+            profile,
+            f"set -e; cd {remote_dir_q}; docker compose -f {VPS_COMPOSE_FILE} build live",
+            known_hosts=known_hosts,
+        )
 
-    log(f"ready: run python manage.py live vps to move live trading to {profile.label}", prefix="setup-vps")
+    if live_running_on_vps and not args.skip_build:
+        log(
+            f"recreating live container on {profile.label} to pick up new image "
+            "(brief interruption; open positions persist via state.json)",
+            prefix="setup-vps",
+        )
+        ssh(
+            profile,
+            f"set -e; cd {remote_dir_q}; docker compose -f {VPS_COMPOSE_FILE} up -d --force-recreate live",
+            known_hosts=known_hosts,
+        )
+        log(f"redeploy complete on {profile.label}", prefix="setup-vps")
+    else:
+        log(f"ready: run python manage.py live vps to move live trading to {profile.label}", prefix="setup-vps")
     return 0
 
 
