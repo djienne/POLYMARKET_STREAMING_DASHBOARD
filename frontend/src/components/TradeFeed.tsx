@@ -1,6 +1,6 @@
 import { AnimatePresence, motion } from "framer-motion";
 import { useDash } from "../lib/store";
-import { fmtLocalHMS, fmtMoney, fmtPct } from "../lib/format";
+import { fmtLocalDate, fmtLocalHMS, fmtMoney, fmtPct } from "../lib/format";
 import type { TradeEvent } from "../lib/types";
 
 export default function TradeFeed() {
@@ -64,7 +64,9 @@ function TradeRow({ trade: t, newest }: { trade: TradeEvent; newest: boolean }) 
       className="rounded-md border border-ink-800/70 px-2 py-1 font-mono"
     >
       <div className="flex items-center justify-between gap-2 text-[11px]">
-        <span className="text-slate-400">{fmtLocalHMS(t.timestamp)}</span>
+        <span className="text-slate-400">
+          {fmtLocalDate(t.timestamp)} {fmtLocalHMS(t.timestamp)}
+        </span>
         <span className="text-slate-200 uppercase tracking-wider text-[10px]">
           {t.event}
         </span>
