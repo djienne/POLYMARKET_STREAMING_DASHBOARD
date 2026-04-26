@@ -6,7 +6,7 @@ function sourceLabel(
   executionLocation: string | null | undefined,
 ): string | null {
   if (source === "local_offload") return "REMOTE";
-  if (source === "vps_local") return "VPS";
+  if (source === "vps_local") return executionLocation === "local" ? "LOCAL" : "VPS";
   if (source) return source.replace(/_/g, " ").toUpperCase();
   if (executionLocation === "local") return "LOCAL";
   if (executionLocation === "vps") return "VPS";

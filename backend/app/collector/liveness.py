@@ -103,9 +103,19 @@ def _mtime(path: Path) -> Optional[float]:
         return None
 
 
+def _active_lock_paths() -> list[Path]:
+    paths = [settings.lock_path()]
+    if settings.mode == "live":
+        paths.insert(0, settings.resolved_results_dir / "single_trader.lock")
+    return paths
+
+
+def _active_lock_exists() -> bool:
+    return any(path.exists() for path in _active_lock_paths())
+
+
 def current_liveness() -> LivenessInfo:
-    lock = settings.lock_path()
-    lock_exists = lock.exists()
+    lock_exists = _active_lock_exists()
     term_mtime = _mtime(settings.terminal_path())
     age = None
     if term_mtime is not None:
