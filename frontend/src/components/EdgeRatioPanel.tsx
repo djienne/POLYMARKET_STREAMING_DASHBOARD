@@ -1,13 +1,31 @@
 import { useDash } from "../lib/store";
 import { fmtProb, fmtRatio } from "../lib/format";
-import type { EdgeRatio, WindowZone } from "../lib/types";
+import type { EdgeRatio, InstanceParams, WindowZone } from "../lib/types";
 
 export default function EdgeRatioPanel() {
+  const inst = useDash((s) => s.instance);
+  const shared = useDash((s) => s.sharedConfig);
   const edgeUp = useDash((s) => s.edgeUp);
   const edgeDown = useDash((s) => s.edgeDown);
   const window = useDash((s) => s.window);
   const zone: WindowZone = window?.zone ?? "unknown";
   const blocked = zone === "blocked_first" || zone === "blocked_last";
+  const params =
+    inst?.params ??
+    (shared.alpha_up != null &&
+    shared.alpha_down != null &&
+    shared.floor_up != null &&
+    shared.floor_down != null &&
+    shared.tp_pct != null
+      ? {
+          alpha_up: shared.alpha_up,
+          alpha_down: shared.alpha_down,
+          floor_up: shared.floor_up,
+          floor_down: shared.floor_down,
+          tp_pct: shared.tp_pct,
+          sl_pct: shared.sl_pct ?? 0,
+        }
+      : null);
 
   return (
     <div className="card px-3 pt-2 pb-1.5 self-start flex flex-col justify-start overflow-hidden">
@@ -23,6 +41,40 @@ export default function EdgeRatioPanel() {
         <EdgeRow edge={edgeUp} blocked={blocked} />
         <EdgeRow edge={edgeDown} blocked={blocked} />
       </div>
+      {params && <StrategyParams params={params} />}
+    </div>
+  );
+}
+
+function StrategyParams({ params }: { params: InstanceParams }) {
+  const tiles = [
+    { k: "aU", v: params.alpha_up.toFixed(1), title: "alpha up" },
+    { k: "aD", v: params.alpha_down.toFixed(1), title: "alpha down" },
+    { k: "fU", v: params.floor_up.toFixed(2), title: "floor up" },
+    { k: "fD", v: params.floor_down.toFixed(2), title: "floor down" },
+    { k: "tp", v: `${(params.tp_pct * 100).toFixed(0)}%`, title: "take profit" },
+    {
+      k: "sl",
+      v: params.sl_pct > 0 ? `${(params.sl_pct * 100).toFixed(0)}%` : "off",
+      title: "stop loss",
+      muted: params.sl_pct === 0,
+    },
+  ];
+
+  return (
+    <div className="mt-1.5 grid grid-cols-6 gap-1">
+      {tiles.map((tile) => (
+        <div
+          key={tile.k}
+          title={tile.title}
+          className={`rounded border border-ink-800/80 bg-ink-900/45 px-1 py-0.5 text-center font-mono leading-none ${
+            tile.muted ? "opacity-55" : ""
+          }`}
+        >
+          <div className="text-[8px] text-cyan-200">{tile.k}</div>
+          <div className="mt-0.5 text-[10px] text-slate-100">{tile.v}</div>
+        </div>
+      ))}
     </div>
   );
 }

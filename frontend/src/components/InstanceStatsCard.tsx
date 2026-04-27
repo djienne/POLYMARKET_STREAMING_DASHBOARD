@@ -10,23 +10,6 @@ export default function InstanceStatsCard() {
   const today = useDash((s) => s.todaySummary);
   const mode = useDash((s) => s.mode);
 
-  const params =
-    inst?.params ??
-    (shared.alpha_up != null &&
-    shared.alpha_down != null &&
-    shared.floor_up != null &&
-    shared.floor_down != null &&
-    shared.tp_pct != null
-      ? {
-          alpha_up: shared.alpha_up,
-          alpha_down: shared.alpha_down,
-          floor_up: shared.floor_up,
-          floor_down: shared.floor_down,
-          tp_pct: shared.tp_pct,
-          sl_pct: shared.sl_pct ?? 0,
-        }
-      : null);
-
   // Realized-only capital: ignores whatever notional is locked into the
   // currently-open position, so the ALL TIME section doesn't dip while a
   // trade is in-flight. `equitySeries` only grows on CLOSE_EVENTS (see
@@ -136,12 +119,6 @@ export default function InstanceStatsCard() {
       sub: `start $${view.starting_capital.toFixed(2)}`,
     },
     {
-      label: "Total PnL",
-      value: fmtMoney(usdcPnl),
-      sub: fmtPct(usdcPnlPct),
-      color: usdcPnl >= 0 ? "text-emerald-300" : "text-rose-300",
-    },
-    {
       label: "Sharpe",
       value: hasTrades ? view.sharpe.toFixed(2) : "—",
       color:
@@ -192,6 +169,47 @@ export default function InstanceStatsCard() {
   const todayClosed = today.wins + today.losses;
   const todayWinRate =
     todayClosed > 0 ? (today.wins / todayClosed) * 100 : null;
+  const todayPnlPctColor =
+    today.pnl_pct == null
+      ? "text-slate-100"
+      : today.pnl_pct > 0
+        ? "text-emerald-200"
+        : today.pnl_pct < 0
+          ? "text-rose-200"
+          : "text-slate-100";
+  const allTimePnlPctColor =
+    usdcPnlPct > 0
+      ? "text-emerald-200"
+      : usdcPnlPct < 0
+        ? "text-rose-200"
+        : "text-slate-100";
+  const headlineTiles = [
+    {
+      label: "Daily PnL %",
+      value: today.pnl_pct != null ? fmtPct(today.pnl_pct) : "--",
+      sub:
+        today.closed > 0
+          ? `${fmtMoney(today.pnl)} today | ${today.closed} closed`
+          : `${today.entries} positions today`,
+      color: todayPnlPctColor,
+      frame:
+        today.pnl_pct == null
+          ? "border-slate-700/80 bg-slate-900/50"
+          : today.pnl_pct >= 0
+            ? "border-emerald-400/35 bg-emerald-500/10"
+            : "border-rose-400/35 bg-rose-500/10",
+    },
+    {
+      label: "All Time PnL %",
+      value: fmtPct(usdcPnlPct),
+      sub: `${fmtMoney(usdcPnl)} total | capital $${view.capital.toFixed(2)}`,
+      color: allTimePnlPctColor,
+      frame:
+        usdcPnlPct >= 0
+          ? "border-emerald-400/35 bg-emerald-500/10"
+          : "border-rose-400/35 bg-rose-500/10",
+    },
+  ];
   const todayTiles = [
     {
       label: "PnL $",
@@ -231,58 +249,13 @@ export default function InstanceStatsCard() {
   const orderSizeUsd =
     orderSizePct != null ? view.capital * orderSizePct : null;
 
-  const paramTiles: ParamTile[] = params
-    ? [
-        {
-          short: "aU",
-          long: "alpha up",
-          value: params.alpha_up.toFixed(1),
-          hint: "tail exponent (UP side)",
-        },
-        {
-          short: "aD",
-          long: "alpha down",
-          value: params.alpha_down.toFixed(1),
-          hint: "tail exponent (DOWN side)",
-        },
-        {
-          short: "fU",
-          long: "floor up",
-          value: params.floor_up.toFixed(2),
-          hint: "min required prob to enter UP",
-        },
-        {
-          short: "fD",
-          long: "floor down",
-          value: params.floor_down.toFixed(2),
-          hint: "min required prob to enter DOWN",
-        },
-        {
-          short: "tp",
-          long: "take profit",
-          value: (params.tp_pct * 100).toFixed(0) + "%",
-          hint: "exit target on entry price",
-        },
-        {
-          short: "sl",
-          long: "stop loss",
-          value:
-            params.sl_pct > 0
-              ? (params.sl_pct * 100).toFixed(0) + "%"
-              : "off",
-          hint: "hard stop (off when 0)",
-          muted: params.sl_pct === 0,
-        },
-      ]
-    : [];
-
   return (
     <div className="card p-3 h-full flex flex-col overflow-hidden">
       <div className="mb-1.5">
         <h2 className="card-header">Performance</h2>
         {orderSizePct != null && (
           <div className="text-[10px] leading-tight text-slate-500 font-mono mt-0.5">
-            size{" "}
+            position size{" "}
             <span className="text-cyan-200">
               {(orderSizePct * 100).toFixed(1)}%
             </span>
@@ -312,6 +285,27 @@ export default function InstanceStatsCard() {
             )}
           </div>
         )}
+      </div>
+
+      <div className="grid grid-cols-2 gap-2 mb-2">
+        {headlineTiles.map((tile) => (
+          <div
+            key={tile.label}
+            className={`min-h-[78px] rounded-lg border px-3 py-2 ${tile.frame}`}
+          >
+            <div className="text-[10px] uppercase tracking-[0.18em] text-slate-400">
+              {tile.label}
+            </div>
+            <div
+              className={`mt-1 font-mono text-[30px] leading-none ${tile.color}`}
+            >
+              {tile.value}
+            </div>
+            <div className="mt-1 truncate text-[10px] font-mono text-slate-400">
+              {tile.sub}
+            </div>
+          </div>
+        ))}
       </div>
 
       <SectionHeader label="All time" tone="slate" />
@@ -358,26 +352,6 @@ export default function InstanceStatsCard() {
         </div>
       </div>
 
-      {params && (
-        <>
-          <div className="flex items-center gap-2 mb-1 mt-0.5">
-            <span className="inline-block w-1.5 h-1.5 rounded-full bg-slate-400" />
-            <span className="font-semibold uppercase tracking-[0.18em] text-[11px] text-slate-300">
-              Params
-            </span>
-            <div className="flex-1 h-px bg-ink-700" />
-            <StrategyBadge
-              alphaUp={params.alpha_up}
-              alphaDown={params.alpha_down}
-            />
-          </div>
-          <div className="grid grid-cols-6 gap-2">
-            {paramTiles.map((p) => (
-              <ParamChip key={p.short} tile={p} />
-            ))}
-          </div>
-        </>
-      )}
     </div>
   );
 }
