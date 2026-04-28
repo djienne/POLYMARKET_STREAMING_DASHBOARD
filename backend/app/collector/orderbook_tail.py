@@ -171,6 +171,8 @@ class OrderbookTail:
 def _mid(bid: Optional[float], ask: Optional[float]) -> Optional[float]:
     if bid is None or ask is None:
         return None
+    if bid <= 0 or ask <= 0:
+        return None
     return (bid + ask) / 2.0
 
 

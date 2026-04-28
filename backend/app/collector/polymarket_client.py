@@ -295,6 +295,10 @@ class PolymarketClient:
                 price = float(row["p"])
             except (KeyError, TypeError, ValueError):
                 continue
+            # Polymarket reports p=0 when the book was empty at that timestamp;
+            # treat as missing rather than a real $0 mid.
+            if price <= 0:
+                continue
             iso = datetime.fromtimestamp(ts, tz=timezone.utc).isoformat()
             points.append((iso, price))
         return points
@@ -392,6 +396,8 @@ class PolymarketClient:
 
 def _mid(bid: Optional[float], ask: Optional[float]) -> Optional[float]:
     if bid is None or ask is None:
+        return None
+    if bid <= 0 or ask <= 0:
         return None
     return (bid + ask) / 2.0
 

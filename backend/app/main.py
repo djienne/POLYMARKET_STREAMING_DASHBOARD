@@ -19,6 +19,7 @@ from .collector.liveness import run_liveness_loop
 from .collector.location_probe import run_location_probe_loop
 from .collector.orderbook_tail import run_orderbook_loop
 from .collector.polymarket_client import run_polymarket_loop
+from .collector.polymarket_status import run_polymarket_status_loop
 from .collector.state_reader import run_state_loop
 from .collector.terminal_reader import run_terminal_loop
 from .collector.trades_tail import run_trades_loop
@@ -45,6 +46,10 @@ async def lifespan(app: FastAPI):
         await hub.polymarket.poll()
     except Exception:
         log.exception("polymarket seed failed")
+    try:
+        await hub.polymarket_status.poll()
+    except Exception:
+        log.exception("polymarket status seed failed")
     # In dry-run mode, seed model probabilities from the local grid logs.
     # In live mode, the model chart must use the active live trader's
     # terminal_data only; the local grid can still be running and would pollute
@@ -70,6 +75,7 @@ async def lifespan(app: FastAPI):
             else []
         ),
         asyncio.create_task(run_polymarket_loop(hub.polymarket, stop)),
+        asyncio.create_task(run_polymarket_status_loop(hub.polymarket_status, stop)),
         asyncio.create_task(run_calibration_loop(hub.calibration, stop)),
     ]
     log.info("dashboard backend started: mode=%s results=%s", settings.mode, settings.resolved_results_dir)

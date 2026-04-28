@@ -43,6 +43,8 @@ export default function PriceChart() {
   const windowElapsed = window?.elapsed_s ?? null;
   const windowStart = useDash((s) => s.windowStartIso);
   const windowEnd = useDash((s) => s.windowEndIso);
+  const polymarketStatus = useDash((s) => s.polymarketStatus);
+  const polymarketDown = !polymarketStatus.is_operational;
 
   const startTs = toTs(windowStart);
   const endTs = toTs(windowEnd);
@@ -256,11 +258,12 @@ export default function PriceChart() {
       </div>
 
       <div className="flex-1 min-h-0 relative">
-        {data.length === 0 && (
+        {data.length === 0 && !polymarketDown && (
           <div className="absolute inset-0 flex items-center justify-center text-slate-500 text-xs font-mono pointer-events-none">
             waiting for first tick on this market…
           </div>
         )}
+        <div className={polymarketDown ? "h-full grayscale opacity-40 transition-opacity" : "h-full"}>
         <ResponsiveContainer width="100%" height="100%">
           <LineChart data={data} margin={{ top: 6, right: 10, bottom: 2, left: 0 }}>
             <CartesianGrid stroke="#1e293b" strokeDasharray="3 3" />
@@ -484,6 +487,34 @@ export default function PriceChart() {
             })}
           </LineChart>
         </ResponsiveContainer>
+        </div>
+        {polymarketDown && (
+          <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
+            <div className="bg-ink-950/85 border border-amber-500/40 rounded-lg px-5 py-3 max-w-md text-center shadow-xl">
+              <div className="text-amber-300 text-xs font-mono uppercase tracking-wider mb-1">
+                Trading not available
+              </div>
+              <div className="text-slate-200 text-sm font-mono">
+                Polymarket probably undergoing maintenance
+              </div>
+              {polymarketStatus.active_maintenance && (
+                <div className="text-slate-400 text-[11px] font-mono mt-1.5">
+                  {polymarketStatus.active_maintenance}
+                </div>
+              )}
+              <div className="text-slate-500 text-[10px] font-mono mt-1">
+                <a
+                  href="https://status.polymarket.com/"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="hover:text-slate-300 underline pointer-events-auto"
+                >
+                  status.polymarket.com
+                </a>
+              </div>
+            </div>
+          </div>
+        )}
       </div>
 
       {/* Marker legend row */}

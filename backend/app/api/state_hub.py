@@ -14,6 +14,7 @@ from ..collector.leaderboard_reader import LeaderboardReader
 from ..collector.liveness import current_liveness
 from ..collector.orderbook_tail import OrderbookTail
 from ..collector.polymarket_client import PolymarketClient
+from ..collector.polymarket_status import PolymarketStatusWatcher
 from ..collector.state_reader import (
     STARTING_CAPITAL,
     StateReader,
@@ -63,6 +64,7 @@ class Hub:
             slug_fn=lambda: self._current_slug(),
         )
         self.polymarket = PolymarketClient(slug_fn=lambda: self._current_slug())
+        self.polymarket_status = PolymarketStatusWatcher()
         self.calibration = CalibrationWatcher(
             log_paths=settings.trader_log_paths(),
             terminal_reader=self.terminal,
@@ -265,6 +267,7 @@ class Hub:
             window_start_iso=_window_iso(slug, 0),
             window_end_iso=_window_iso(slug, 900),
             equity_series=equity_series,
+            polymarket_status=self.polymarket_status.status,
         )
 
     def _edges_from(self, terminal: TerminalSnapshot, lb_row) -> tuple[Optional["EdgeRatio"], Optional["EdgeRatio"]]:

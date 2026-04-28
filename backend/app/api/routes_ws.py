@@ -26,6 +26,7 @@ DROPPABLE_TOPICS = {
     "edge.update",
     "calibration.start",
     "calibration.end",
+    "polymarket_status.update",
 }
 
 

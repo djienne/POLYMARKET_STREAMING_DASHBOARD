@@ -53,6 +53,9 @@ class Settings(BaseSettings):
     # 1s cadence is still comfortably below Polymarket's documented /book limit.
     polymarket_poll_interval_seconds: float = 1.0
     polymarket_request_timeout_seconds: float = 6.0
+    # Instatus status page poll cadence — slow because maintenance windows are
+    # rare and last 30+ minutes; one check per minute is plenty.
+    polymarket_status_poll_interval_seconds: float = 60.0
 
     # VPS location probe — shows latency from the currently-active live trader
     # side. For location=vps, the probe SSHes out to measure trader→Polymarket

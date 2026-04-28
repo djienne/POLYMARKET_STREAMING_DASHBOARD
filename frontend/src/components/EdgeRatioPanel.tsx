@@ -8,6 +8,7 @@ export default function EdgeRatioPanel() {
   const edgeUp = useDash((s) => s.edgeUp);
   const edgeDown = useDash((s) => s.edgeDown);
   const window = useDash((s) => s.window);
+  const polymarketDown = useDash((s) => !s.polymarketStatus.is_operational);
   const zone: WindowZone = window?.zone ?? "unknown";
   const blocked = zone === "blocked_first" || zone === "blocked_last";
   const params =
@@ -28,20 +29,32 @@ export default function EdgeRatioPanel() {
       : null);
 
   return (
-    <div className="card px-3 pt-2 pb-1.5 self-start flex flex-col justify-start overflow-hidden">
+    <div className="card px-3 pt-2 pb-1.5 self-start flex flex-col justify-start overflow-hidden relative">
       <div className="flex items-baseline justify-between mb-1">
         <h2 className="card-header">Edge Ratio</h2>
-        {blocked && (
+        {polymarketDown ? (
+          <span className="chip chip-warn text-[8px] px-1.5 py-0 font-mono leading-tight">
+            unavailable
+          </span>
+        ) : blocked ? (
           <span className="chip chip-warn text-[8px] px-1.5 py-0 font-mono leading-tight">
             blocked
           </span>
-        )}
+        ) : null}
       </div>
-      <div className="grid grid-cols-1 gap-1 content-start auto-rows-min">
-        <EdgeRow edge={edgeUp} blocked={blocked} />
-        <EdgeRow edge={edgeDown} blocked={blocked} />
+      <div
+        className={
+          polymarketDown
+            ? "grayscale opacity-40 transition-opacity pointer-events-none"
+            : ""
+        }
+      >
+        <div className="grid grid-cols-1 gap-1 content-start auto-rows-min">
+          <EdgeRow edge={edgeUp} blocked={blocked} />
+          <EdgeRow edge={edgeDown} blocked={blocked} />
+        </div>
+        {params && <StrategyParams params={params} />}
       </div>
-      {params && <StrategyParams params={params} />}
     </div>
   );
 }

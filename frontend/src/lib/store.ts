@@ -7,6 +7,7 @@ import type {
   InstanceStats,
   LeaderboardRow,
   LivenessInfo,
+  PolymarketStatus,
   PositionState,
   PricePoint,
   SharedConfig,
@@ -56,6 +57,7 @@ interface DashState {
   windowStartIso: string | null;
   windowEndIso: string | null;
   equitySeries: PricePoint[];
+  polymarketStatus: PolymarketStatus;
   wsStatus: WsStatus;
   flashQueue: FlashEvent[];
 
@@ -73,6 +75,13 @@ const initialCalibration: CalibrationStatus = {
   started_at: null,
   elapsed_s: null,
   last_timing: null,
+};
+
+const initialPolymarketStatus: PolymarketStatus = {
+  status: "UP",
+  is_operational: true,
+  active_maintenance: null,
+  fetched_at: null,
 };
 
 function mergeLivenessInfo(
@@ -165,6 +174,7 @@ export const useDash = create<DashState>((set, get) => ({
   windowStartIso: null,
   windowEndIso: null,
   equitySeries: [],
+  polymarketStatus: initialPolymarketStatus,
   sharedConfig: {
     starting_capital: null,
     order_size_pct: null,
@@ -249,6 +259,7 @@ export const useDash = create<DashState>((set, get) => ({
       windowStartIso: p.window_start_iso ?? null,
       windowEndIso: p.window_end_iso ?? null,
       equitySeries: p.equity_series ?? [],
+      polymarketStatus: p.polymarket_status ?? initialPolymarketStatus,
     })),
 
   applyEnvelope: (env) => {
@@ -415,6 +426,9 @@ export const useDash = create<DashState>((set, get) => ({
         break;
       case "trade.append":
         handleTrade(env.data, get, set);
+        break;
+      case "polymarket_status.update":
+        set({ polymarketStatus: env.data ?? initialPolymarketStatus });
         break;
       default:
         break;

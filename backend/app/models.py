@@ -103,6 +103,15 @@ class PolymarketPrices(BaseModel):
     prob_down: Optional[float] = None
 
 
+class PolymarketStatus(BaseModel):
+    # Instatus page-level status: "UP" | "UNDERMAINTENANCE" | "HASISSUES" |
+    # "DEGRADEDPERFORMANCE" | "PARTIALOUTAGE" | "MINOROUTAGE" | "MAJOROUTAGE".
+    status: str = "UP"
+    is_operational: bool = True
+    active_maintenance: Optional[str] = None
+    fetched_at: Optional[str] = None
+
+
 class TimingInfo(BaseModel):
     calibration_s: Optional[float] = None
     surface_fit_s: Optional[float] = None
@@ -246,6 +255,7 @@ class BootstrapPayload(BaseModel):
     window_start_iso: Optional[str] = None
     window_end_iso: Optional[str] = None
     equity_series: list[PricePoint] = []
+    polymarket_status: PolymarketStatus = PolymarketStatus()
 
 
 class WsEnvelope(BaseModel):

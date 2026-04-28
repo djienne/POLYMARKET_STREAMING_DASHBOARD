@@ -92,6 +92,13 @@ export interface PolymarketPrices {
   prob_down: number | null;
 }
 
+export interface PolymarketStatus {
+  status: string;
+  is_operational: boolean;
+  active_maintenance: string | null;
+  fetched_at: string | null;
+}
+
 export interface TimingInfo {
   calibration_s: number | null;
   surface_fit_s: number | null;
@@ -237,6 +244,7 @@ export interface BootstrapPayload {
   window_start_iso: string | null;
   window_end_iso: string | null;
   equity_series: PricePoint[];
+  polymarket_status: PolymarketStatus;
 }
 
 export interface WsEnvelopeBase<TType extends string, TData> {
@@ -292,6 +300,7 @@ export type WsEnvelope =
   | WsEnvelopeBase<"calibration.start", CalibrationStatus>
   | WsEnvelopeBase<"calibration.end", CalibrationStatus>
   | WsEnvelopeBase<"trade.append", TradeEvent>
+  | WsEnvelopeBase<"polymarket_status.update", PolymarketStatus>
   | WsEnvelopeBase<"pong", PongData>;
 
 export interface LegacyWsEnvelope<T = unknown> {
